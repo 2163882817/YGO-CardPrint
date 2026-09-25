@@ -316,7 +316,7 @@ export default function CardPrintApp() {
 
         <section className="how-section page-width" id="how-it-works"><div className="section-label"><span>THE PROCESS / 03 STEPS</span><span className="section-label__rule" /></div><div className="how-section__body"><div><h2>从卡片到纸面，<br />只需三步。</h2><p>提前排好每一张，打印时更从容。</p></div><div className="how-steps"><div><span>01</span><strong>查找卡片</strong><p>通过卡名、密码或 CID 快速定位。</p></div><div><span>02</span><strong>挑选图版</strong><p>选好图片版本、数量和打印顺序。</p></div><div><span>03</span><strong>确认版式</strong><p>按 A3 纸 3 × 4 标准卡尺寸预览。</p></div></div></div></section>
       </main>
-      <footer className="site-footer"><div className="page-width"><span className="footer-brand">YGO <small>CARDPRINT</small></span><span>为线下测试卡片而做 · 卡片资料由百鸽提供</span><a href="https://ygocdb.com/api" target="_blank" rel="noreferrer">数据来源 ↗</a></div></footer>
+      <footer className="site-footer"><div className="page-width"><span className="footer-brand">YGO <small>CARDPRINT</small></span><span>想试试决斗却舍不得买整套实卡？从这里开始，低成本开启你的决斗 · 卡片资料由百鸽提供</span><a href="https://ygocdb.com/api" target="_blank" rel="noreferrer">数据来源 ↗</a></div></footer>
       <a className="mobile-tray-bar" href="#print-tray"><span><Layers3 size={18} /> 打印清单 <b>{total}</b></span><span>查看排版 <ArrowRight size={16} /></span></a>
 
       {selectedCard && <div className="dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedCard(null); }}><div ref={dialogRef} className="card-dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
