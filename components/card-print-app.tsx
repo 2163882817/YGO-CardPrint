@@ -14,6 +14,7 @@ import {
 type ImageStatus = "loading" | "ready" | "missing";
 const STORAGE_KEY = "cardprint:project:v1";
 const STORAGE_LIFETIME = 30 * 24 * 60 * 60 * 1000;
+const PAGE_CARD_COUNT = 9;
 const suggested = ["青眼白龙", "黑魔术师", "灰流丽", "真红眼黑龙"];
 
 function isSavedItem(value: unknown): value is PrintItem {
@@ -184,10 +185,10 @@ export default function CardPrintApp() {
   }, [selectedCard]);
 
   const total = items.reduce((count, item) => count + item.quantity, 0);
-  const pages = Math.max(1, Math.ceil(total / 12));
+  const pages = Math.max(1, Math.ceil(total / PAGE_CARD_COUNT));
   const currentPage = Math.min(previewPage, pages - 1);
   const allCards = items.flatMap((item) => Array.from({ length: item.quantity }, () => item));
-  const pageCards = allCards.slice(currentPage * 12, currentPage * 12 + 12);
+  const pageCards = allCards.slice(currentPage * PAGE_CARD_COUNT, currentPage * PAGE_CARD_COUNT + PAGE_CARD_COUNT);
 
   const openCard = (card: Card) => {
     setSelectedCard(card);
@@ -253,8 +254,8 @@ export default function CardPrintApp() {
           </div>
           <div className="hero__illustration" aria-hidden="true">
             <div className="hero__paper">
-              <div className="hero__paper-top"><span>PRINT SHEET / 001</span><span>A3 · 3 × 4</span></div>
-              <div className="hero__mini-grid">{Array.from({ length: 12 }, (_, index) => <div key={index} className={`hero__mini-card hero__mini-card--${index % 4}`}><span /></div>)}</div>
+              <div className="hero__paper-top"><span>PRINT SHEET / 001</span><span>A4 · 3 × 3</span></div>
+              <div className="hero__mini-grid">{Array.from({ length: 9 }, (_, index) => <div key={index} className={`hero__mini-card hero__mini-card--${index % 3}`}><span /></div>)}</div>
               <div className="hero__paper-bottom"><span>59 × 86 mm</span><span>100% SCALE</span></div>
             </div>
             <span className="hero__seal">卡片计划<br /><strong>从这里开始</strong></span>
@@ -306,15 +307,15 @@ export default function CardPrintApp() {
                   })}</div><button className="clear-list" type="button" onClick={() => { if (window.confirm("确定清空打印清单吗？")) { setItems([]); setPreviewPage(0); } }}><Trash2 size={14} />清空清单</button></>
                 )}
               </div>
-              <div className="preview-panel"><div className="preview-panel__heading"><div><span>排版预览</span><small>A3 横向 · 3 行 × 4 列</small></div><span>{currentPage + 1} / {pages} 页</span></div><div className="preview-sheet" aria-label={`第${currentPage + 1}页的卡片排版预览`}>
-                {Array.from({ length: 12 }, (_, index) => { const item = pageCards[index]; return <div key={index} className={`preview-slot ${item ? "preview-slot--filled" : ""}`}>{item ? <CardArtwork card={item.card} variant={item.variant} /> : <span>{String(index + 1).padStart(2, "0")}</span>}</div>; })}
+              <div className="preview-panel"><div className="preview-panel__heading"><div><span>排版预览</span><small>A4 纵向 · 3 行 × 3 列</small></div><span>{currentPage + 1} / {pages} 页</span></div><div className="preview-sheet" aria-label={`第${currentPage + 1}页的卡片排版预览`}>
+                {Array.from({ length: PAGE_CARD_COUNT }, (_, index) => { const item = pageCards[index]; return <div key={index} className={`preview-slot ${item ? "preview-slot--filled" : ""}`}>{item ? <CardArtwork card={item.card} variant={item.variant} /> : <span>{String(index + 1).padStart(2, "0")}</span>}</div>; })}
               </div><div className="preview-panel__footer"><span>标准卡尺寸 59 × 86 mm</span><div><button type="button" aria-label="上一页" disabled={currentPage === 0} onClick={() => setPreviewPage((page) => page - 1)}><ChevronLeft size={16} /></button><button type="button" aria-label="下一页" disabled={currentPage >= pages - 1} onClick={() => setPreviewPage((page) => page + 1)}><ChevronRight size={16} /></button></div></div></div>
               <div className="export-area"><button className="export-button" type="button" disabled><FileDown size={18} /><span>导出 Word 文档</span><ArrowRight size={17} /></button><p>Word 生成接口将在后端阶段接入。清单和排版预览现已可用。</p></div>
             </aside>
           </div>
         </section>
 
-        <section className="how-section page-width" id="how-it-works"><div className="section-label"><span>THE PROCESS / 03 STEPS</span><span className="section-label__rule" /></div><div className="how-section__body"><div><h2>从卡片到纸面，<br />只需三步。</h2><p>提前排好每一张，打印时更从容。</p></div><div className="how-steps"><div><span>01</span><strong>查找卡片</strong><p>通过卡名、密码或 CID 快速定位。</p></div><div><span>02</span><strong>挑选图版</strong><p>选好图片版本、数量和打印顺序。</p></div><div><span>03</span><strong>确认版式</strong><p>按 A3 纸 3 × 4 标准卡尺寸预览。</p></div></div></div></section>
+        <section className="how-section page-width" id="how-it-works"><div className="section-label"><span>THE PROCESS / 03 STEPS</span><span className="section-label__rule" /></div><div className="how-section__body"><div><h2>从卡片到纸面，<br />只需三步。</h2><p>提前排好每一张，打印时更从容。</p></div><div className="how-steps"><div><span>01</span><strong>查找卡片</strong><p>通过卡名、密码或 CID 快速定位。</p></div><div><span>02</span><strong>挑选图版</strong><p>选好图片版本、数量和打印顺序。</p></div><div><span>03</span><strong>确认版式</strong><p>按 A4 纸 3 × 3 标准卡尺寸预览。</p></div></div></div></section>
       </main>
       <footer className="site-footer"><div className="page-width"><span className="footer-brand">YGO <small>CARDPRINT</small></span><span>萌新从这里开始，低成本开启你的决斗 · 卡片资料由百鸽提供</span><a href="https://ygocdb.com/api" target="_blank" rel="noreferrer">数据来源 ↗</a></div></footer>
       <a className="mobile-tray-bar" href="#print-tray"><span><Layers3 size={18} /> 打印清单 <b>{total}</b></span><span>查看排版 <ArrowRight size={16} /></span></a>

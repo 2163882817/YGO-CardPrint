@@ -34,7 +34,7 @@ for /l %%N in (1,1,30) do (
         set "READY=1"
         goto :open_browser
     )
-    timeout /t 1 /nobreak >nul
+    powershell.exe -NoProfile -ExecutionPolicy Bypass -Command "Start-Sleep -Seconds 1"
 )
 
 if not defined READY goto :server_error
