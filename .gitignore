@@ -1,0 +1,25 @@
+# Dependencies and build output
+node_modules/
+.next/
+out/
+dist/
+coverage/
+*.tsbuildinfo
+
+# Local environment and credentials
+.env
+.env.*
+!.env.example
+*.pem
+
+# Generated files and caches
+exports/
+storage/
+tmp/
+*.log
+
+# Local tooling
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
