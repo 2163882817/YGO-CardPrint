@@ -14,6 +14,7 @@ import { usePrintProject } from "@/components/use-print-project";
 
 type ImageStatus = "loading" | "ready" | "missing";
 type ExportState = "idle" | "submitting" | "processing" | "completed" | "failed";
+type BatchResult = { input: string; kind: "password" | "name"; matches: Card[]; resolved: Card | null; requiresConfirmation: boolean; hasMore: boolean; error: string | null };
 const PAGE_CARD_COUNT = 9;
 const suggested = ["青眼白龙", "黑魔术师", "灰流丽", "真红眼黑龙"];
 
@@ -88,6 +89,11 @@ export default function CardPrintApp() {
   const [notice, setNotice] = useState("");
   const [exportState, setExportState] = useState<ExportState>("idle");
   const [exportError, setExportError] = useState("");
+  const [batchOpen, setBatchOpen] = useState(false);
+  const [batchText, setBatchText] = useState("");
+  const [batchResults, setBatchResults] = useState<BatchResult[]>([]);
+  const [batchLoading, setBatchLoading] = useState(false);
+  const [batchError, setBatchError] = useState("");
   const controller = useRef<AbortController | null>(null);
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -157,10 +163,41 @@ export default function CardPrintApp() {
   const allCards = items.flatMap((item) => Array.from({ length: item.quantity }, () => item));
   const pageCards = allCards.slice(currentPage * PAGE_CARD_COUNT, currentPage * PAGE_CARD_COUNT + PAGE_CARD_COUNT);
 
-  const openCard = (card: Card) => {
+  const openCard = async (card: Card) => {
     setSelectedCard(card);
     setSelectedVariant("ygopro");
     setImageStatus({});
+    try {
+      const response = await fetch(`/api/cards/${encodeURIComponent(card.id)}`, { cache: "no-store" });
+      if (response.ok) {
+        const detail = await response.json() as Card;
+        setSelectedCard((current) => current?.id === card.id ? detail : current);
+      }
+    } catch {
+      // Keep the search result if the detail request is unavailable.
+    }
+  };
+
+  const resolveBatch = async () => {
+    const inputs = batchText.split(/[,，\n\r]+/).map((value) => value.trim()).filter(Boolean);
+    if (!inputs.length) { setBatchError("请每行输入一个卡名或卡片密码。"); return; }
+    setBatchLoading(true);
+    setBatchError("");
+    setBatchResults([]);
+    try {
+      const response = await fetch("/api/cards/resolve", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ inputs }),
+      });
+      const payload = await response.json() as { results?: BatchResult[]; error?: string };
+      if (!response.ok || !payload.results) throw new Error(payload.error || "批量匹配失败，请稍后重试。");
+      setBatchResults(payload.results);
+    } catch (reason) {
+      setBatchError(reason instanceof Error ? reason.message : "批量匹配失败，请稍后重试。");
+    } finally {
+      setBatchLoading(false);
+    }
   };
 
   const addItem = () => {
@@ -300,7 +337,15 @@ export default function CardPrintApp() {
                 <input id="card-search" value={input} onChange={(event) => setInput(event.target.value)} placeholder="试试「青眼白龙」或 89631139" autoComplete="off" />
                 <button type="submit" disabled={loading}>{loading ? <LoaderCircle size={18} className="spin" /> : "搜索卡片"}<ArrowRight size={17} /></button>
               </form>
-              <div className="suggestions"><span>试着搜索</span>{suggested.map((term) => <button key={term} type="button" onClick={() => runSuggested(term)}>{term}<ArrowRight size={12} /></button>)}</div>
+              <div className="suggestions"><span>试着搜索</span>{suggested.map((term) => <button key={term} type="button" onClick={() => runSuggested(term)}>{term}<ArrowRight size={12} /></button>)}<button type="button" className="batch-trigger" onClick={() => { setBatchOpen(true); setBatchError(""); }}>批量解析 <Layers3 size={12} /></button></div>
+
+              {batchOpen && <div className="batch-resolver" aria-label="批量解析卡片">
+                <div className="batch-resolver__heading"><div><strong>批量解析卡片</strong><span>每行输入一个卡名或卡片密码</span></div><button type="button" aria-label="关闭批量解析" onClick={() => setBatchOpen(false)}><X size={16} /></button></div>
+                <textarea value={batchText} onChange={(event) => setBatchText(event.target.value)} placeholder={"青眼白龙\n89631139\n黑魔术师"} rows={5} />
+                <button type="button" className="batch-resolver__submit" onClick={() => void resolveBatch()} disabled={batchLoading}>{batchLoading ? <LoaderCircle size={15} className="spin" /> : <Search size={15} />} {batchLoading ? "正在匹配…" : "开始匹配"}</button>
+                {batchError && <p className="batch-resolver__error" role="alert">{batchError}</p>}
+                {batchResults.length > 0 && <div className="batch-results">{batchResults.map((result, index) => <div className="batch-result" key={`${index}:${result.kind}:${result.input}`}><div className="batch-result__label"><strong>{result.input}</strong><span>{result.error ? "查询失败" : result.resolved ? "唯一匹配" : result.requiresConfirmation ? `找到 ${result.matches.length}${result.hasMore ? " +" : ""} 个候选，请确认` : "未找到"}</span></div>{result.error ? <em>{result.error}</em> : result.resolved ? <button type="button" onClick={() => void openCard(result.resolved!)}>{result.resolved.name}<span>查看详情并选择图版</span></button> : result.matches.length > 0 ? <div className="batch-result__choices">{result.matches.slice(0, 8).map((card) => <button key={`${card.cid}:${card.id}`} type="button" onClick={() => void openCard(card)}>{card.name}<span>{card.id} · CID {card.cid}</span></button>)}{(result.hasMore || result.matches.length > 8) && <button type="button" onClick={() => { setBatchOpen(false); setInput(result.input); void searchCards(result.input); }}>查看全部搜索结果 <ArrowRight size={13} /></button>}</div> : <em>没有匹配结果</em>}</div>)}</div>}
+              </div>}
 
               <div className="results-heading"><h3>{query ? `「${query}」的搜索结果` : "搜索结果"}</h3><span>{loading && !results.length ? "正在查找…" : results.length ? `已显示 ${results.length} 张卡片` : ""}</span></div>
               {error && <div className="message message--error" role="alert"><AlertCircle size={18} /><span>{error}</span><button type="button" onClick={() => void searchCards(query || input)}>重试</button></div>}
@@ -353,7 +398,7 @@ export default function CardPrintApp() {
       {selectedCard && <div className="dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedCard(null); }}><div ref={dialogRef} className="card-dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
         <button ref={closeButtonRef} type="button" className="dialog-close" aria-label="关闭卡图选择" onClick={() => setSelectedCard(null)}><X size={20} /></button>
         <div className="dialog-preview"><div className="dialog-preview__top">CARD PREVIEW <span>·</span> {selectedCard.id}</div><CardArtwork key={`${selectedCard.id}:${selectedVariant}`} card={selectedCard} variant={selectedVariant} onStatus={(status) => setImageStatus((current) => ({ ...current, [selectedVariant]: status }))} /><p>预览图仅供选版，正式导出将使用原图。</p></div>
-        <div className="dialog-content"><div className="dialog-eyebrow">选择卡图 / SELECT ARTWORK</div><h2 id="dialog-title">{selectedCard.name}</h2><p className="dialog-subtitle">{selectedCard.enName || selectedCard.jpName || `CID ${selectedCard.cid}`}</p><div className="dialog-card-meta"><span>密码 {selectedCard.id} · CID {selectedCard.cid}</span>{selectedCard.types && <span>{selectedCard.types.split("\n")[0]}</span>}</div><div className="dialog-rule" /><div className="dialog-label">选择你想打印的图版 <span>不同图版可分别加入</span></div><div className="variant-grid">{CARD_VARIANTS.map((variant) => <VariantOption key={`${selectedCard.id}:${variant.id}`} card={selectedCard} variant={variant} selected={selectedVariant === variant.id} onSelect={() => setSelectedVariant(variant.id)} onStatus={(status) => setImageStatus((current) => ({ ...current, [variant.id]: status }))} />)}</div><div className="dialog-bottom"><div className="dialog-tip"><AlertCircle size={16} /><span>{imageStatus[selectedVariant] === "missing" ? "当前图版暂无卡图，请选择其他版本。" : imageStatus[selectedVariant] === "ready" ? "图版可用。清单中的卡图将在后端导出时再次校验。" : "正在检查所选图版是否可用…"}</span></div><button type="button" className="dialog-add" disabled={imageStatus[selectedVariant] !== "ready" || total >= 120} onClick={addItem}><Plus size={18} />加入打印清单<ArrowRight size={17} /></button></div></div>
+        <div className="dialog-content"><div className="dialog-eyebrow">选择卡图 / SELECT ARTWORK</div><h2 id="dialog-title">{selectedCard.name}</h2><p className="dialog-subtitle">{selectedCard.enName || selectedCard.jpName || `CID ${selectedCard.cid}`}</p><div className="dialog-card-meta"><span>密码 {selectedCard.id} · CID {selectedCard.cid}</span>{selectedCard.types && <span>{selectedCard.types.split("\n")[0]}</span>}</div>{selectedCard.description && <div className="dialog-description"><strong>卡片效果</strong><p>{selectedCard.description}</p></div>}<div className="dialog-rule" /><div className="dialog-label">选择你想打印的图版 <span>不同图版可分别加入</span></div><div className="variant-grid">{CARD_VARIANTS.map((variant) => <VariantOption key={`${selectedCard.id}:${variant.id}`} card={selectedCard} variant={variant} selected={selectedVariant === variant.id} onSelect={() => setSelectedVariant(variant.id)} onStatus={(status) => setImageStatus((current) => ({ ...current, [variant.id]: status }))} />)}</div><div className="dialog-bottom"><div className="dialog-tip"><AlertCircle size={16} /><span>{imageStatus[selectedVariant] === "missing" ? "当前图版暂无卡图，请选择其他版本。" : imageStatus[selectedVariant] === "ready" ? "图版可用。清单中的卡图将在后端导出时再次校验。" : "正在检查所选图版是否可用…"}</span></div><button type="button" className="dialog-add" disabled={imageStatus[selectedVariant] !== "ready" || total >= 120} onClick={addItem}><Plus size={18} />加入打印清单<ArrowRight size={17} /></button></div></div>
       </div></div>}
       {notice && <div className="toast" role="status"><Check size={16} />{notice}</div>}
     </div>
