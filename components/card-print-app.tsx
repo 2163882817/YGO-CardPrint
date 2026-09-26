@@ -4,29 +4,18 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertCircle, ArrowDown, ArrowRight, ArrowUp, Check, ChevronLeft, ChevronRight,
-  FileDown, Layers3, LoaderCircle, Minus, Plus, Search, Trash2, X,
+  FileDown, Layers3, Link2, LoaderCircle, Minus, Plus, RefreshCw, Search, Trash2, X,
 } from "lucide-react";
 import {
   CARD_VARIANTS, cardImage, itemKey,
-  type Card, type CardVariant, type PrintItem, type SearchResponse,
+  type Card, type CardVariant, type SearchResponse,
 } from "@/lib/cards";
+import { usePrintProject } from "@/components/use-print-project";
 
 type ImageStatus = "loading" | "ready" | "missing";
 type ExportState = "idle" | "submitting" | "processing" | "completed" | "failed";
-const STORAGE_KEY = "cardprint:project:v1";
-const STORAGE_LIFETIME = 30 * 24 * 60 * 60 * 1000;
 const PAGE_CARD_COUNT = 9;
 const suggested = ["青眼白龙", "黑魔术师", "灰流丽", "真红眼黑龙"];
-
-function isSavedItem(value: unknown): value is PrintItem {
-  if (typeof value !== "object" || value === null) return false;
-  const item = value as Partial<PrintItem>;
-  return Boolean(item.card && typeof item.card === "object" &&
-    /^\d{1,12}$/.test(String(item.card.id)) && Number.isInteger(item.card.cid) &&
-    typeof item.card.name === "string" &&
-    CARD_VARIANTS.some((variant) => variant.id === item.variant) &&
-    Number.isInteger(item.quantity) && (item.quantity ?? 0) >= 1 && (item.quantity ?? 0) <= 3);
-}
 
 function CardArtwork({ card, variant, className = "", onStatus }: {
   card: Card;
@@ -91,8 +80,7 @@ export default function CardPrintApp() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [searched, setSearched] = useState(false);
-  const [items, setItems] = useState<PrintItem[]>([]);
-  const [storageReady, setStorageReady] = useState(false);
+  const { items, setItems, storageReady, status: projectStatus, recoveryToken, retry } = usePrintProject();
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
   const [selectedVariant, setSelectedVariant] = useState<CardVariant>("ygopro");
   const [imageStatus, setImageStatus] = useState<Partial<Record<CardVariant, ImageStatus>>>({});
@@ -136,29 +124,6 @@ export default function CardPrintApp() {
     const timer = window.setTimeout(() => void searchCards("青眼白龙"), 0);
     return () => { window.clearTimeout(timer); controller.current?.abort(); };
   }, [searchCards]);
-
-  useEffect(() => {
-    const timer = window.setTimeout(() => {
-      try {
-        const raw = localStorage.getItem(STORAGE_KEY);
-        if (raw) {
-          const saved: unknown = JSON.parse(raw);
-          if (typeof saved === "object" && saved !== null) {
-            const record = saved as { updatedAt?: number; items?: unknown };
-            if (typeof record.updatedAt === "number" && Date.now() - record.updatedAt < STORAGE_LIFETIME && Array.isArray(record.items)) {
-              setItems(record.items.filter(isSavedItem).slice(0, 120));
-            } else localStorage.removeItem(STORAGE_KEY);
-          }
-        }
-      } catch { localStorage.removeItem(STORAGE_KEY); }
-      setStorageReady(true);
-    }, 0);
-    return () => window.clearTimeout(timer);
-  }, []);
-
-  useEffect(() => {
-    if (storageReady) localStorage.setItem(STORAGE_KEY, JSON.stringify({ items, updatedAt: Date.now() }));
-  }, [items, storageReady]);
 
   useEffect(() => {
     if (!notice) return;
@@ -230,6 +195,18 @@ export default function CardPrintApp() {
   };
 
   const runSuggested = (term: string) => { setInput(term); void searchCards(term); };
+
+  const copyRecoveryLink = async () => {
+    if (!recoveryToken) return;
+    try {
+      const url = new URL(window.location.href);
+      url.hash = new URLSearchParams({ project: recoveryToken }).toString();
+      await navigator.clipboard.writeText(url.toString());
+      setNotice("找回链接已复制，请妥善保管。");
+    } catch {
+      setNotice("复制失败，请检查浏览器剪贴板权限。");
+    }
+  };
 
   const exportWord = async () => {
     if (!items.length) {
@@ -339,7 +316,11 @@ export default function CardPrintApp() {
 
             <aside className="print-tray" id="print-tray" aria-labelledby="tray-heading">
               <div className="section-label"><span>02 / YOUR PRINT SHEET</span><span className="section-label__rule" /></div>
-              <div className="tray-heading"><div><h2 id="tray-heading">打印清单</h2><p>所选卡片会保存在此设备</p></div><span className="tray-count">{total} <small>张</small></span></div>
+              <div className="tray-heading"><div><h2 id="tray-heading">打印清单</h2><p aria-live="polite">{projectStatus === "loading" ? "正在恢复清单…" : projectStatus === "saving" ? "正在保存到云端…" : projectStatus === "synced" ? "已保存到云端" : projectStatus === "conflict" ? "清单已在其他页面更新" : "云端未连接，已保存在本机"}</p></div><span className="tray-count">{total} <small>张</small></span></div>
+              <div className="project-actions">
+                <button type="button" onClick={() => void copyRecoveryLink()} disabled={!recoveryToken} title={recoveryToken ? "复制可在其他浏览器使用的项目找回链接" : "连接云端后可复制找回链接"}><Link2 size={15} />复制找回链接</button>
+                {(projectStatus === "offline" || projectStatus === "conflict") && <button type="button" onClick={retry} title="重新连接云端"><RefreshCw size={15} />重试同步</button>}
+              </div>
               <div className="tray-body">
                 {items.length === 0 ? (
                   <div className="tray-empty"><div className="tray-empty__stack"><span /><span /><span /></div><h3>留个位置给喜欢的卡</h3><p>从左侧查找卡片，挑选图版后加入这里。</p><a href="#search">去找卡片 <ArrowRight size={15} /></a></div>
@@ -357,7 +338,7 @@ export default function CardPrintApp() {
               <div className="preview-panel"><div className="preview-panel__heading"><div><span>排版预览</span><small>A4 纵向 · 3 行 × 3 列</small></div><span>{currentPage + 1} / {pages} 页</span></div><div className="preview-sheet" aria-label={`第${currentPage + 1}页的卡片排版预览`}>
                 {Array.from({ length: PAGE_CARD_COUNT }, (_, index) => { const item = pageCards[index]; return <div key={index} className={`preview-slot ${item ? "preview-slot--filled" : ""}`}>{item ? <CardArtwork card={item.card} variant={item.variant} /> : <span>{String(index + 1).padStart(2, "0")}</span>}</div>; })}
               </div><div className="preview-panel__footer"><span>标准卡尺寸 59 × 86 mm</span><div><button type="button" aria-label="上一页" disabled={currentPage === 0} onClick={() => setPreviewPage((page) => page - 1)}><ChevronLeft size={16} /></button><button type="button" aria-label="下一页" disabled={currentPage >= pages - 1} onClick={() => setPreviewPage((page) => page + 1)}><ChevronRight size={16} /></button></div></div></div>
-              <div className="export-area"><button className="export-button" type="button" disabled={!items.length || exportState === "submitting" || exportState === "processing"} onClick={() => void exportWord()}><FileDown size={18} /><span>{exportState === "submitting" ? "正在创建任务…" : exportState === "processing" ? "正在生成 Word…" : exportState === "completed" ? "重新导出 Word" : "导出 Word 文档"}</span>{exportState === "processing" ? <LoaderCircle size={17} className="spin" /> : <ArrowRight size={17} />}</button><p>{exportError || (items.length ? "按 A4 纵向 3 × 3 生成标准 59 × 86 mm 卡片。" : "先加入卡片后即可生成 Word 文件。")}</p></div>
+              <div className="export-area"><button className="export-button" type="button" disabled={!storageReady || !items.length || projectStatus !== "synced" || exportState === "submitting" || exportState === "processing"} onClick={() => void exportWord()}><FileDown size={18} /><span>{exportState === "submitting" ? "正在创建任务…" : exportState === "processing" ? "正在生成 Word…" : exportState === "completed" ? "重新导出 Word" : "导出 Word 文档"}</span>{exportState === "processing" ? <LoaderCircle size={17} className="spin" /> : <ArrowRight size={17} />}</button><p>{exportError || (projectStatus !== "synced" && items.length ? "清单同步到云端后即可导出。" : items.length ? "按 A4 纵向 3 × 3 生成标准 59 × 86 mm 卡片。" : "先加入卡片后即可生成 Word 文件。")}</p></div>
             </aside>
           </div>
         </section>

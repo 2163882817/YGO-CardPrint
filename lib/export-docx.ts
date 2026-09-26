@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import {
   AlignmentType,
   BorderStyle,
@@ -19,6 +21,7 @@ import sharp from "sharp";
 
 import { cardImage, type CardVariant, type PrintItem } from "@/lib/cards";
 import { completeExportJob, updateExportJob } from "@/lib/export-store";
+import { getPrisma } from "@/lib/prisma";
 
 const CARD_WIDTH_MM = 59;
 const CARD_HEIGHT_MM = 86;
@@ -75,7 +78,7 @@ async function fetchCardImage(id: string, variant: CardVariant) {
   }
 }
 
-async function prepareImage(id: string, variant: CardVariant): Promise<PreparedImage> {
+async function prepareImage(id: string, cid: number, variant: CardVariant): Promise<PreparedImage> {
   const source = await fetchCardImage(id, variant);
   let metadata;
   try {
@@ -93,6 +96,16 @@ async function prepareImage(id: string, variant: CardVariant): Promise<PreparedI
     .resize(IMAGE_WIDTH_PX, IMAGE_HEIGHT_PX, { fit: "fill" })
     .jpeg({ quality: 93, chromaSubsampling: "4:4:4", mozjpeg: true })
     .toBuffer();
+  await getPrisma().cardImage.update({
+    where: { cardCid_variant: { cardCid: cid, variant } },
+    data: {
+      width: metadata.width,
+      height: metadata.height,
+      checksum: createHash("sha256").update(source).digest("hex"),
+      status: "READY",
+      checkedAt: new Date(),
+    },
+  });
   return { data, type: "jpg" };
 }
 
@@ -165,10 +178,10 @@ export async function generateExportDocument(jobId: string, items: PrintItem[]) 
   try {
     await updateExportJob(jobId, { status: "processing" });
     const expanded = items.flatMap((item) => Array.from({ length: item.quantity }, () => item));
-    const unique = new Map<string, { id: string; variant: CardVariant }>();
+    const unique = new Map<string, { id: string; cid: number; variant: CardVariant }>();
     for (const item of expanded) {
       const key = item.card.id + ":" + item.variant;
-      unique.set(key, { id: item.card.id, variant: item.variant });
+      unique.set(key, { id: item.card.id, cid: item.card.cid, variant: item.variant });
     }
 
     const prepared = new Map<string, PreparedImage>();
@@ -176,7 +189,7 @@ export async function generateExportDocument(jobId: string, items: PrintItem[]) 
     for (let offset = 0; offset < entries.length; offset += 4) {
       const batch = entries.slice(offset, offset + 4);
       const results = await Promise.all(batch.map(async ([key, source]) =>
-        [key, await prepareImage(source.id, source.variant)] as const));
+        [key, await prepareImage(source.id, source.cid, source.variant)] as const));
       for (const [key, image] of results) prepared.set(key, image);
     }
 

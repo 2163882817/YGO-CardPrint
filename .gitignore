@@ -17,6 +17,7 @@ coverage/
 /storage/
 /tmp/
 *.log
+/prisma/generated/
 
 # Local tooling
 .DS_Store

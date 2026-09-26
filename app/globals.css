@@ -123,6 +123,7 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
 .print-tray { scroll-margin-top: 18px; position: sticky; top: 24px; }
 .tray-heading { display: flex; justify-content: space-between; align-items: center; margin: 15px 0 19px; }
 .tray-count { display: flex; align-items: baseline; gap: 3px; color: #255c43; font-size: 26px; font-weight: 760; }.tray-count small { font-size: 11px; font-weight: 600; }
+.project-actions { display: flex; flex-wrap: wrap; gap: 8px; margin: -8px 0 14px; }.project-actions button { min-height: 34px; display: inline-flex; align-items: center; gap: 6px; padding: 7px 9px; border: 1px solid #dbe7dc; border-radius: 4px; background: #fff; color: #39694d; font-size: 10px; font-weight: 650; }.project-actions button:hover:not(:disabled) { background: #eff6ed; }.project-actions button:disabled { opacity: .5; cursor: not-allowed; }
 .tray-body { border: 1px solid #e1e9df; border-bottom: 0; border-radius: 7px 7px 0 0; background: #fbfcf9; }
 .tray-empty { min-height: 241px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; padding: 20px; }
 .tray-empty__stack { width: 62px; height: 62px; position: relative; margin-bottom: 8px; }.tray-empty__stack span { position: absolute; left: 19px; top: 9px; width: 35px; height: 48px; border: 2px solid #9db6a3; background: #f5f9f1; border-radius: 3px; }.tray-empty__stack span:first-child { transform: translate(-12px,3px) rotate(-13deg); }.tray-empty__stack span:nth-child(2) { transform: translate(-5px,0) rotate(-5deg); }.tray-empty__stack span:last-child { transform: rotate(8deg); background: #e2ecd9; }
@@ -191,6 +192,7 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
 .dialog-close { width: 44px; height: 44px; right: 10px; top: 10px; }
 .result-card__add { min-width: 44px; min-height: 44px; justify-content: center; }
 .suggestions button, .clear-list, .tray-empty a { min-height: 44px; }
+.project-actions button { min-height: 44px; }
 .variant-option__copy small { white-space: normal; }
 @media (max-width: 600px) {
   .preview-sheet { width: min(270px, 100%); padding: 11.8% 6.9%; }

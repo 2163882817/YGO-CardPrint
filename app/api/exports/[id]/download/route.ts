@@ -1,12 +1,16 @@
 import { getExportJob, readExportFile } from "@/lib/export-store";
+import { PROJECT_COOKIE, getProjectByToken } from "@/lib/print-project";
+import { NextRequest } from "next/server";
 
 export const runtime = "nodejs";
 
-export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
+export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
-  const job = await getExportJob(id);
+  const project = await getProjectByToken(request.cookies.get(PROJECT_COOKIE)?.value);
+  if (!project) return Response.json({ error: "项目令牌无效或已过期。" }, { status: 401 });
+  const job = await getExportJob(id, project.id);
   if (!job) return Response.json({ error: "导出任务不存在或已过期。" }, { status: 404 });
-  if (job.status !== "completed") {
+  if (job.status !== "COMPLETED") {
     return Response.json({ error: job.error ?? "文件尚未生成，请稍后再试。", status: job.status }, { status: 409 });
   }
   const file = await readExportFile(id);
