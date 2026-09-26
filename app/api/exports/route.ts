@@ -1,14 +1,16 @@
 import { generateExportDocument } from "@/lib/export-docx";
+import { assertExportStorageConfigured } from "@/lib/blob-storage";
 import { cleanupExpiredDataBestEffort } from "@/lib/cleanup";
 import { createExportJob, publicExportJob } from "@/lib/export-store";
 import { parsePrintItems } from "@/lib/print-items";
 import { PROJECT_COOKIE, getProjectByToken } from "@/lib/print-project";
-import { NextRequest } from "next/server";
+import { after, NextRequest } from "next/server";
 
 const MAX_ITEMS = 120;
 const MAX_BODY_LENGTH = 64 * 1024;
 
 export const runtime = "nodejs";
+export const maxDuration = 300;
 
 export async function POST(request: NextRequest) {
   let body: unknown;
@@ -28,6 +30,7 @@ export async function POST(request: NextRequest) {
   if (!items || items.length > MAX_ITEMS) return Response.json({ error: "请提供 1～120 张有效的打印清单。" }, { status: 400 });
 
   try {
+    assertExportStorageConfigured();
     await cleanupExpiredDataBestEffort();
     const project = await getProjectByToken(request.cookies.get(PROJECT_COOKIE)?.value);
     if (!project) return Response.json({ error: "打印项目已失效，请刷新页面后重试。" }, { status: 401 });
@@ -38,10 +41,12 @@ export async function POST(request: NextRequest) {
       return Response.json({ error: "云端清单尚未同步，请稍后重试。" }, { status: 409 });
     }
     const job = await createExportJob(project.id, items);
-    void generateExportDocument(job.id, items);
+    after(() => generateExportDocument(job.id, items));
     return Response.json(publicExportJob(job), { status: 202 });
-  } catch {
-    return Response.json({ error: "导出服务暂时不可用，请稍后重试。" }, { status: 503 });
+  } catch (error) {
+    console.error("Export creation failed:", error);
+    return Response.json({ error: error instanceof Error && error.message.includes("BLOB_READ_WRITE_TOKEN")
+      ? error.message : "导出服务暂时不可用，请稍后重试。" }, { status: 503 });
   }
 }
 

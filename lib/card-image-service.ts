@@ -5,6 +5,7 @@ import { join } from "node:path";
 import sharp from "sharp";
 
 import { CARD_VARIANTS, cardImage, type CardVariant } from "@/lib/cards";
+import { deletePrivateBlob, readPrivateBlob, usesBlobStorage, writePrivateBlob } from "@/lib/blob-storage";
 import { getPrisma } from "@/lib/prisma";
 
 export const CARD_IMAGE_CDN_HOST = "cdn.233.momobako.com";
@@ -63,6 +64,10 @@ function sourceUrl(id: string, variant: CardVariant) {
 
 function cachePath(id: string, variant: CardVariant) {
   return join(cacheDirectory, `${id}-${variant}.bin`);
+}
+
+function blobCachePath(id: string, variant: CardVariant) {
+  return `card-images/${id}-${variant}.bin`;
 }
 
 function wait(milliseconds: number) {
@@ -168,23 +173,33 @@ export async function validateAndCacheCardImage(id: string, cid: number, variant
   const url = sourceUrl(id, variant);
   const label = `卡片 ${id} 的 ${variant} 图版`;
   const path = cachePath(id, variant);
+  const blobPath = blobCachePath(id, variant);
   let data: Buffer | undefined;
   let cacheHit = false;
-  try {
-    const details = await stat(path);
-    if (Date.now() - details.mtimeMs <= CARD_IMAGE_CACHE_TTL_MS) {
-      data = await readFile(path);
+  if (usesBlobStorage()) {
+    const cached = await readPrivateBlob(blobPath);
+    if (cached && Date.now() - cached.uploadedAt.getTime() <= CARD_IMAGE_CACHE_TTL_MS) {
+      data = cached.data;
       cacheHit = true;
     }
-  } catch (error) {
-    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+  } else {
+    try {
+      const details = await stat(path);
+      if (Date.now() - details.mtimeMs <= CARD_IMAGE_CACHE_TTL_MS) {
+        data = await readFile(path);
+        cacheHit = true;
+      }
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+    }
   }
 
   let inspected;
   try {
     if (data) inspected = await inspectImage(data, label);
   } catch {
-    await unlink(path).catch(() => {});
+    if (usesBlobStorage()) await deletePrivateBlob(blobPath).catch(() => {});
+    else await unlink(path).catch(() => {});
     data = undefined;
     cacheHit = false;
   }
@@ -193,10 +208,14 @@ export async function validateAndCacheCardImage(id: string, cid: number, variant
       const downloaded = await fetchFromCdn(url, label);
       data = downloaded.data;
       inspected = await inspectImage(data, label, downloaded.contentType);
-      await mkdir(cacheDirectory, { recursive: true });
-      const temporary = join(cacheDirectory, `${id}-${variant}.${randomUUID()}.tmp`);
-      await writeFile(temporary, data);
-      await rename(temporary, path);
+      if (usesBlobStorage()) {
+        await writePrivateBlob(blobPath, data, downloaded.contentType);
+      } else {
+        await mkdir(cacheDirectory, { recursive: true });
+        const temporary = join(cacheDirectory, `${id}-${variant}.${randomUUID()}.tmp`);
+        await writeFile(temporary, data);
+        await rename(temporary, path);
+      }
     } catch (error) {
       await updateImageRecord(cid, variant, { status: error instanceof CardImageError && error.kind === "invalid" ? "INVALID" : "MISSING" });
       throw error;

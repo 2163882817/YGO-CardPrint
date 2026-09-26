@@ -3,6 +3,7 @@ import { join } from "node:path";
 
 import { PROJECT_IDLE_DAYS } from "@/lib/print-project";
 import { CARD_IMAGE_CACHE_DAYS } from "@/lib/card-image-service";
+import { deleteExpiredPrivateBlobs, usesBlobStorage } from "@/lib/blob-storage";
 import { getPrisma } from "@/lib/prisma";
 
 export const WORD_FILE_RETENTION_DAYS = 3;
@@ -13,8 +14,8 @@ function beforeDays(days: number) {
   return new Date(Date.now() - days * 24 * 60 * 60 * 1000);
 }
 
-/** 清理过期项目、导出任务、孤立卡片，以及本地 Word 文件。 */
-export async function cleanupExpiredData() {
+/** 清理过期项目、导出任务、孤立卡片和过期文件。 */
+export async function cleanupExpiredData(includeBlobFiles = true) {
   const client = getPrisma();
   const now = new Date();
   const wordCutoff = beforeDays(WORD_FILE_RETENTION_DAYS);
@@ -33,32 +34,40 @@ export async function cleanupExpiredData() {
   });
 
   let deletedFiles = 0;
-  try {
-    const entries = await readdir(storageDirectory, { withFileTypes: true });
-    await Promise.all(entries.filter((entry) => entry.isFile()).map(async (entry) => {
-      const path = join(storageDirectory, entry.name);
-      const details = await stat(path);
-      if (details.mtime <= wordCutoff) {
-        await unlink(path);
-        deletedFiles += 1;
-      }
-    }));
-  } catch (error) {
-    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+  if (usesBlobStorage()) {
+    if (includeBlobFiles) deletedFiles = await deleteExpiredPrivateBlobs("exports/", wordCutoff);
+  } else {
+    try {
+      const entries = await readdir(storageDirectory, { withFileTypes: true });
+      await Promise.all(entries.filter((entry) => entry.isFile()).map(async (entry) => {
+        const path = join(storageDirectory, entry.name);
+        const details = await stat(path);
+        if (details.mtime <= wordCutoff) {
+          await unlink(path);
+          deletedFiles += 1;
+        }
+      }));
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+    }
   }
 
   let deletedCacheFiles = 0;
-  try {
-    const entries = await readdir(cardImageCacheDirectory, { withFileTypes: true });
-    await Promise.all(entries.filter((entry) => entry.isFile()).map(async (entry) => {
-      const path = join(cardImageCacheDirectory, entry.name);
-      if ((await stat(path)).mtime <= cacheCutoff) {
-        await unlink(path);
-        deletedCacheFiles += 1;
-      }
-    }));
-  } catch (error) {
-    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+  if (usesBlobStorage()) {
+    if (includeBlobFiles) deletedCacheFiles = await deleteExpiredPrivateBlobs("card-images/", cacheCutoff);
+  } else {
+    try {
+      const entries = await readdir(cardImageCacheDirectory, { withFileTypes: true });
+      await Promise.all(entries.filter((entry) => entry.isFile()).map(async (entry) => {
+        const path = join(cardImageCacheDirectory, entry.name);
+        if ((await stat(path)).mtime <= cacheCutoff) {
+          await unlink(path);
+          deletedCacheFiles += 1;
+        }
+      }));
+    } catch (error) {
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+    }
   }
 
   return { deletedProjects, deletedJobs, deletedCards, deletedFiles, deletedCacheFiles };
@@ -66,7 +75,7 @@ export async function cleanupExpiredData() {
 
 export async function cleanupExpiredDataBestEffort() {
   try {
-    return await cleanupExpiredData();
+    return await cleanupExpiredData(!usesBlobStorage());
   } catch (error) {
     console.error("Expired data cleanup failed:", error);
     return null;

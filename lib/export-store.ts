@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { Prisma, ExportStatus } from "@prisma/client";
 
 import type { PrintItem } from "@/lib/cards";
+import { deletePrivateBlob, readPrivateBlob, usesBlobStorage, writePrivateBlob } from "@/lib/blob-storage";
 import { getPrisma } from "@/lib/prisma";
 
 const directory = join(process.cwd(), "storage", "exports");
@@ -16,6 +17,15 @@ function filePath(id: string) {
   return join(directory, id + ".docx");
 }
 
+function blobPath(id: string) {
+  return `exports/${id}.docx`;
+}
+
+async function deleteExportFile(id: string) {
+  if (usesBlobStorage()) await deletePrivateBlob(blobPath(id));
+  else await unlink(filePath(id));
+}
+
 async function pruneExpiredJobs() {
   const client = getPrisma();
   const expired = await client.exportJob.findMany({
@@ -25,7 +35,7 @@ async function pruneExpiredJobs() {
   });
   if (expired.length) {
     await client.exportJob.deleteMany({ where: { id: { in: expired.map((job) => job.id) } } });
-    await Promise.allSettled(expired.map((job) => unlink(filePath(job.id))));
+    await Promise.allSettled(expired.map((job) => deleteExportFile(job.id)));
   }
   if (await client.exportJob.count({ where: { expiresAt: { gt: new Date() } } }) >= MAX_JOBS) {
     throw new Error("导出任务暂时较多，请稍后重试。");
@@ -57,8 +67,8 @@ export async function getExportJob(id: string, projectId: string) {
   const job = await client.exportJob.findFirst({
     where: { id, projectId, expiresAt: { gt: new Date() } },
   });
-  if (job?.status === ExportStatus.PROCESSING &&
-    Date.now() - job.updatedAt.getTime() > 15 * 60 * 1000) {
+  if (job && (job.status === ExportStatus.PROCESSING || job.status === ExportStatus.QUEUED) &&
+    Date.now() - job.updatedAt.getTime() > 6 * 60 * 1000) {
     return client.exportJob.update({
       where: { id },
       data: { status: ExportStatus.FAILED, error: "导出任务中断，请重新提交。" },
@@ -81,6 +91,14 @@ export async function updateExportJob(
 }
 
 export async function completeExportJob(id: string, file: Buffer, fileName: string, warnings: string[] = []) {
+  if (usesBlobStorage()) {
+    await writePrivateBlob(blobPath(id), file, "application/vnd.openxmlformats-officedocument.wordprocessingml.document");
+    await getPrisma().exportJob.update({
+      where: { id },
+      data: { status: ExportStatus.COMPLETED, fileName, fileKey: blobPath(id), warnings: warnings as Prisma.InputJsonValue },
+    });
+    return;
+  }
   await mkdir(directory, { recursive: true });
   const temporary = join(directory, id + "." + randomUUID() + ".tmp");
   try {
@@ -97,6 +115,7 @@ export async function completeExportJob(id: string, file: Buffer, fileName: stri
 
 export async function readExportFile(id: string) {
   if (!ID_PATTERN.test(id)) return undefined;
+  if (usesBlobStorage()) return (await readPrivateBlob(blobPath(id)))?.data;
   try {
     return await readFile(filePath(id));
   } catch (error) {
