@@ -234,13 +234,15 @@ export default function CardPrintApp() {
       for (let attempt = 0; attempt < 600; attempt += 1) {
         await new Promise((resolve) => window.setTimeout(resolve, 1000));
         const statusResponse = await fetch(`/api/exports/${encodeURIComponent(created.id)}`, { cache: "no-store" });
-        const status = await statusResponse.json() as { status?: ExportState; error?: string; downloadUrl?: string };
+        const status = await statusResponse.json() as { status?: ExportState; error?: string; downloadUrl?: string; warnings?: string[] };
         if (!statusResponse.ok) throw new Error(status.error || "查询导出任务失败。");
         if (status.status === "failed") throw new Error(status.error || "Word 文件生成失败。");
         if (status.status === "completed" && status.downloadUrl) {
           setExportState("completed");
           window.location.assign(status.downloadUrl);
-          setNotice("Word 文件已生成，正在开始下载。");
+          setNotice(status.warnings?.length
+            ? `Word 文件已生成，正在开始下载。清晰度提示：${status.warnings.join(" ")}`
+            : "Word 文件已生成，正在开始下载。");
           return;
         }
       }

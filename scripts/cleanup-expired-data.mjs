@@ -7,6 +7,7 @@ const now = new Date();
 const projectCutoff = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
 const wordCutoff = new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000);
 const storageDirectory = join(process.cwd(), "storage", "exports");
+const cardImageCacheDirectory = join(process.cwd(), "storage", "card-images");
 
 try {
   const { projectResult, jobResult, cardResult } = await prisma.$transaction(async (tx) => {
@@ -33,7 +34,21 @@ try {
   } catch (error) {
     if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
   }
-  console.log(JSON.stringify({ deletedProjects: projectResult.count, deletedJobs: jobResult.count, deletedCards: cardResult.count, deletedFiles: fileCount }));
+  let cacheFileCount = 0;
+  try {
+    const entries = await readdir(cardImageCacheDirectory, { withFileTypes: true });
+    for (const entry of entries) {
+      if (!entry.isFile()) continue;
+      const path = join(cardImageCacheDirectory, entry.name);
+      if ((await stat(path)).mtime <= new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000)) {
+        await unlink(path);
+        cacheFileCount += 1;
+      }
+    }
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+  }
+  console.log(JSON.stringify({ deletedProjects: projectResult.count, deletedJobs: jobResult.count, deletedCards: cardResult.count, deletedFiles: fileCount, deletedCacheFiles: cacheFileCount }));
 } finally {
   await prisma.$disconnect();
 }

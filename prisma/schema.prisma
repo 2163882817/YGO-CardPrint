@@ -88,6 +88,7 @@ model ExportJob {
   fileName      String?      @map("file_name") @db.VarChar(255)
   fileKey       String?      @map("file_key") @db.VarChar(255)
   error         String?      @db.Text
+  warnings      Json?
   createdAt     DateTime     @default(now()) @map("created_at")
   updatedAt     DateTime     @updatedAt @map("updated_at")
   expiresAt     DateTime     @map("expires_at")

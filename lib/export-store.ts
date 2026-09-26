@@ -80,7 +80,7 @@ export async function updateExportJob(
   });
 }
 
-export async function completeExportJob(id: string, file: Buffer, fileName: string) {
+export async function completeExportJob(id: string, file: Buffer, fileName: string, warnings: string[] = []) {
   await mkdir(directory, { recursive: true });
   const temporary = join(directory, id + "." + randomUUID() + ".tmp");
   try {
@@ -88,7 +88,7 @@ export async function completeExportJob(id: string, file: Buffer, fileName: stri
     await rename(temporary, filePath(id));
     await getPrisma().exportJob.update({
       where: { id },
-      data: { status: ExportStatus.COMPLETED, fileName, fileKey: id + ".docx" },
+      data: { status: ExportStatus.COMPLETED, fileName, fileKey: id + ".docx", warnings: warnings as Prisma.InputJsonValue },
     });
   } finally {
     await unlink(temporary).catch(() => {});
@@ -113,6 +113,7 @@ export function publicExportJob(job: Awaited<ReturnType<typeof createExportJob>>
     pageCount: job.pageCount,
     fileName: job.fileName,
     error: job.error,
+    warnings: Array.isArray(job.warnings) ? job.warnings : [],
     createdAt: job.createdAt.toISOString(),
     updatedAt: job.updatedAt.toISOString(),
     downloadUrl: job.status === ExportStatus.COMPLETED ? "/api/exports/" + job.id + "/download" : undefined,

@@ -2,10 +2,12 @@ import { readdir, stat, unlink } from "node:fs/promises";
 import { join } from "node:path";
 
 import { PROJECT_IDLE_DAYS } from "@/lib/print-project";
+import { CARD_IMAGE_CACHE_DAYS } from "@/lib/card-image-service";
 import { getPrisma } from "@/lib/prisma";
 
 export const WORD_FILE_RETENTION_DAYS = 3;
 const storageDirectory = join(process.cwd(), "storage", "exports");
+const cardImageCacheDirectory = join(process.cwd(), "storage", "card-images");
 
 function beforeDays(days: number) {
   return new Date(Date.now() - days * 24 * 60 * 60 * 1000);
@@ -17,6 +19,7 @@ export async function cleanupExpiredData() {
   const now = new Date();
   const wordCutoff = beforeDays(WORD_FILE_RETENTION_DAYS);
   const projectCutoff = beforeDays(PROJECT_IDLE_DAYS);
+  const cacheCutoff = beforeDays(CARD_IMAGE_CACHE_DAYS);
 
   const { deletedJobs, deletedProjects, deletedCards } = await client.$transaction(async (tx) => {
     const jobs = await tx.exportJob.deleteMany({
@@ -44,7 +47,21 @@ export async function cleanupExpiredData() {
     if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
   }
 
-  return { deletedProjects, deletedJobs, deletedCards, deletedFiles };
+  let deletedCacheFiles = 0;
+  try {
+    const entries = await readdir(cardImageCacheDirectory, { withFileTypes: true });
+    await Promise.all(entries.filter((entry) => entry.isFile()).map(async (entry) => {
+      const path = join(cardImageCacheDirectory, entry.name);
+      if ((await stat(path)).mtime <= cacheCutoff) {
+        await unlink(path);
+        deletedCacheFiles += 1;
+      }
+    }));
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+  }
+
+  return { deletedProjects, deletedJobs, deletedCards, deletedFiles, deletedCacheFiles };
 }
 
 export async function cleanupExpiredDataBestEffort() {
