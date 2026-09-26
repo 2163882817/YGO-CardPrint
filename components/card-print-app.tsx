@@ -12,6 +12,7 @@ import {
 } from "@/lib/cards";
 
 type ImageStatus = "loading" | "ready" | "missing";
+type ExportState = "idle" | "submitting" | "processing" | "completed" | "failed";
 const STORAGE_KEY = "cardprint:project:v1";
 const STORAGE_LIFETIME = 30 * 24 * 60 * 60 * 1000;
 const PAGE_CARD_COUNT = 9;
@@ -55,7 +56,6 @@ function CardArtwork({ card, variant, className = "", onStatus }: {
     </div>
   );
 }
-
 function VariantOption({ card, variant, selected, onSelect, onStatus }: {
   card: Card;
   variant: typeof CARD_VARIANTS[number];
@@ -98,6 +98,8 @@ export default function CardPrintApp() {
   const [imageStatus, setImageStatus] = useState<Partial<Record<CardVariant, ImageStatus>>>({});
   const [previewPage, setPreviewPage] = useState(0);
   const [notice, setNotice] = useState("");
+  const [exportState, setExportState] = useState<ExportState>("idle");
+  const [exportError, setExportError] = useState("");
   const controller = useRef<AbortController | null>(null);
   const dialogRef = useRef<HTMLDivElement | null>(null);
   const closeButtonRef = useRef<HTMLButtonElement | null>(null);
@@ -229,6 +231,51 @@ export default function CardPrintApp() {
 
   const runSuggested = (term: string) => { setInput(term); void searchCards(term); };
 
+  const exportWord = async () => {
+    if (!items.length) {
+      setNotice("请先加入至少一张卡片。");
+      return;
+    }
+    setExportState("submitting");
+    setExportError("");
+    try {
+      const createResponse = await fetch("/api/exports", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          items: items.map(({ card, variant, quantity }) => ({
+            card: { id: card.id, cid: card.cid, name: card.name },
+            variant,
+            quantity,
+          })),
+        }),
+      });
+      const created = await createResponse.json() as { id?: string; error?: string };
+      if (!createResponse.ok || !created.id) throw new Error(created.error || "创建导出任务失败，请稍后重试。");
+
+      setExportState("processing");
+      for (let attempt = 0; attempt < 600; attempt += 1) {
+        await new Promise((resolve) => window.setTimeout(resolve, 1000));
+        const statusResponse = await fetch(`/api/exports/${encodeURIComponent(created.id)}`, { cache: "no-store" });
+        const status = await statusResponse.json() as { status?: ExportState; error?: string; downloadUrl?: string };
+        if (!statusResponse.ok) throw new Error(status.error || "查询导出任务失败。");
+        if (status.status === "failed") throw new Error(status.error || "Word 文件生成失败。");
+        if (status.status === "completed" && status.downloadUrl) {
+          setExportState("completed");
+          window.location.assign(status.downloadUrl);
+          setNotice("Word 文件已生成，正在开始下载。");
+          return;
+        }
+      }
+      throw new Error("生成时间较长，请稍后重试。");
+    } catch (reason) {
+      const message = reason instanceof Error ? reason.message : "Word 导出失败，请稍后重试。";
+      setExportState("failed");
+      setExportError(message);
+      setNotice(message);
+    }
+  };
+
   return (
     <div className="app-shell">
       <header className="site-header">
@@ -310,7 +357,7 @@ export default function CardPrintApp() {
               <div className="preview-panel"><div className="preview-panel__heading"><div><span>排版预览</span><small>A4 纵向 · 3 行 × 3 列</small></div><span>{currentPage + 1} / {pages} 页</span></div><div className="preview-sheet" aria-label={`第${currentPage + 1}页的卡片排版预览`}>
                 {Array.from({ length: PAGE_CARD_COUNT }, (_, index) => { const item = pageCards[index]; return <div key={index} className={`preview-slot ${item ? "preview-slot--filled" : ""}`}>{item ? <CardArtwork card={item.card} variant={item.variant} /> : <span>{String(index + 1).padStart(2, "0")}</span>}</div>; })}
               </div><div className="preview-panel__footer"><span>标准卡尺寸 59 × 86 mm</span><div><button type="button" aria-label="上一页" disabled={currentPage === 0} onClick={() => setPreviewPage((page) => page - 1)}><ChevronLeft size={16} /></button><button type="button" aria-label="下一页" disabled={currentPage >= pages - 1} onClick={() => setPreviewPage((page) => page + 1)}><ChevronRight size={16} /></button></div></div></div>
-              <div className="export-area"><button className="export-button" type="button" disabled><FileDown size={18} /><span>导出 Word 文档</span><ArrowRight size={17} /></button><p>Word 生成接口将在后端阶段接入。清单和排版预览现已可用。</p></div>
+              <div className="export-area"><button className="export-button" type="button" disabled={!items.length || exportState === "submitting" || exportState === "processing"} onClick={() => void exportWord()}><FileDown size={18} /><span>{exportState === "submitting" ? "正在创建任务…" : exportState === "processing" ? "正在生成 Word…" : exportState === "completed" ? "重新导出 Word" : "导出 Word 文档"}</span>{exportState === "processing" ? <LoaderCircle size={17} className="spin" /> : <ArrowRight size={17} />}</button><p>{exportError || (items.length ? "按 A4 纵向 3 × 3 生成标准 59 × 86 mm 卡片。" : "先加入卡片后即可生成 Word 文件。")}</p></div>
             </aside>
           </div>
         </section>

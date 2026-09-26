@@ -13,9 +13,9 @@ coverage/
 *.pem
 
 # Generated files and caches
-exports/
-storage/
-tmp/
+/exports/
+/storage/
+/tmp/
 *.log
 
 # Local tooling
