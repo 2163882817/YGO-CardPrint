@@ -40,6 +40,8 @@ npm run dev
 
 Windows 用户可以双击项目根目录的 `启动前端.bat`。脚本会自动检查 Node.js/npm；如果尚未安装依赖，会先执行 `npm install`，然后启动 Next.js 开发服务器。
 
+需要同时准备网站、API 和 MySQL 时，可双击 `启动项目.bat`。脚本会检查 `.env` 中的 `DATABASE_URL`，在本机 MySQL 未运行时尝试启动服务，安装缺失依赖并执行 Prisma 迁移，然后启动 Next.js（页面和 `/api/*` 接口共用该服务）并打开浏览器。若 3000 端口被其他程序占用，会依次尝试 3001-3010；服务日志位于 `storage/logs/`。首次使用前仍需配置 `.env` 并创建对应数据库。
+
 也可以在 PowerShell 中运行：
 
 ```powershell
