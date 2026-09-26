@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 
 import { parsePrintItems } from "@/lib/print-items";
+import { cleanupExpiredDataBestEffort } from "@/lib/cleanup";
 import {
   PROJECT_COOKIE,
   ProjectConflictError,
@@ -23,9 +24,12 @@ async function readBody(request: Request): Promise<unknown> {
 
 export async function GET(request: NextRequest) {
   try {
-    const project = await getProjectByToken(request.cookies.get(PROJECT_COOKIE)?.value);
+    const token = request.cookies.get(PROJECT_COOKIE)?.value;
+    const project = await getProjectByToken(token);
     if (!project) return NextResponse.json({ error: "尚无可恢复的打印清单。" }, { status: 404 });
-    return NextResponse.json(publicProject(project), { headers: { "Cache-Control": "no-store" } });
+    const response = NextResponse.json(publicProject(project), { headers: { "Cache-Control": "no-store" } });
+    response.cookies.set(PROJECT_COOKIE, token!, projectCookieOptions());
+    return response;
   } catch (error) {
     console.error("Project lookup failed:", error);
     return NextResponse.json({ error: "数据库暂时不可用，清单仍保存在此浏览器。" }, { status: 503 });
@@ -42,6 +46,7 @@ export async function POST(request: NextRequest) {
   const items = parsePrintItems((body as { items?: unknown })?.items, true);
   if (!items) return NextResponse.json({ error: "打印清单包含无效卡片或数量。" }, { status: 400 });
   try {
+    await cleanupExpiredDataBestEffort();
     const existing = await getProjectByToken(request.cookies.get(PROJECT_COOKIE)?.value);
     if (existing) return NextResponse.json(publicProject(existing));
     const { token, project } = await createProject(items);

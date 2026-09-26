@@ -8,7 +8,7 @@ import type { PrintItem } from "@/lib/cards";
 import { getPrisma } from "@/lib/prisma";
 
 const directory = join(process.cwd(), "storage", "exports");
-const JOB_TTL_MS = 30 * 60 * 1000;
+const JOB_TTL_MS = 3 * 24 * 60 * 60 * 1000;
 const MAX_JOBS = 100;
 const ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 

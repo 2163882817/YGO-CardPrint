@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "db:generate": "prisma generate",
     "db:migrate": "prisma migrate deploy",
-    "db:dev": "prisma migrate dev"
+    "db:dev": "prisma migrate dev",
+    "db:cleanup": "node --env-file=.env scripts/cleanup-expired-data.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.19.0",

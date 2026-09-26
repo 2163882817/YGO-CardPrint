@@ -1,4 +1,5 @@
 import { generateExportDocument } from "@/lib/export-docx";
+import { cleanupExpiredDataBestEffort } from "@/lib/cleanup";
 import { createExportJob, publicExportJob } from "@/lib/export-store";
 import { parsePrintItems } from "@/lib/print-items";
 import { PROJECT_COOKIE, getProjectByToken } from "@/lib/print-project";
@@ -27,6 +28,7 @@ export async function POST(request: NextRequest) {
   if (!items || items.length > MAX_ITEMS) return Response.json({ error: "请提供 1～120 张有效的打印清单。" }, { status: 400 });
 
   try {
+    await cleanupExpiredDataBestEffort();
     const project = await getProjectByToken(request.cookies.get(PROJECT_COOKIE)?.value);
     if (!project) return Response.json({ error: "打印项目已失效，请刷新页面后重试。" }, { status: 401 });
     const saved = project.items.sort((a, b) => a.position - b.position);

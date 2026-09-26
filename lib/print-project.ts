@@ -6,7 +6,8 @@ import { cardImage, type PrintItem } from "@/lib/cards";
 import { getPrisma } from "@/lib/prisma";
 
 export const PROJECT_COOKIE = "ygo_print_project";
-export const PROJECT_LIFETIME_SECONDS = 30 * 24 * 60 * 60;
+export const PROJECT_IDLE_DAYS = 7;
+export const PROJECT_LIFETIME_SECONDS = PROJECT_IDLE_DAYS * 24 * 60 * 60;
 const TOKEN_PATTERN = /^[A-Za-z0-9_-]{43}$/;
 
 type StoredProject = Prisma.PrintProjectGetPayload<{
@@ -64,10 +65,25 @@ export function publicProject(project: StoredProject) {
 
 export async function getProjectByToken(token: unknown) {
   if (!validProjectToken(token)) return null;
-  return getPrisma().printProject.findFirst({
-    where: { tokenHash: tokenHash(token), expiresAt: { gt: new Date() } },
+  const client = getPrisma();
+  const activeSince = new Date(Date.now() - PROJECT_LIFETIME_SECONDS * 1000);
+  const project = await client.printProject.findFirst({
+    where: { tokenHash: tokenHash(token), expiresAt: { gt: new Date() }, updatedAt: { gt: activeSince } },
     include: { items: { include: { card: true }, orderBy: { position: "asc" } } },
   });
+  if (!project) return null;
+
+  // 读取、恢复、导出都算一次活动，重新计算七天闲置期限。
+  const refreshedCount = await client.printProject.updateMany({
+    where: { id: project.id, expiresAt: { gt: new Date() }, updatedAt: { gt: activeSince } },
+    data: { expiresAt: expiresAt() },
+  });
+  if (refreshedCount.count !== 1) return null;
+  const refreshed = await client.printProject.findUniqueOrThrow({
+    where: { id: project.id },
+    include: { items: { include: { card: true }, orderBy: { position: "asc" } } },
+  });
+  return refreshed;
 }
 
 async function saveCards(tx: Prisma.TransactionClient, items: PrintItem[]) {
