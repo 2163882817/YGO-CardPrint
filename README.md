@@ -61,7 +61,7 @@ Windows 用户可以双击项目根目录的 `启动前端.bat`。脚本会自�
 
 ## Vercel 上线配置
 
-1. 在 Vercel 项目 **Storage** 中创建并连接 **Blob** 存储，选择 **Private** 访问模式。确认项目 Production 环境获得 `BLOB_READ_WRITE_TOKEN`。未配置时导出接口会明确报错。
+1. 在 Vercel 项目 **Storage** 中创建并连接 **Blob** 存储，选择 **Private** 访问模式。新版连接通常提供 `BLOB_STORE_ID` 并由 Vercel OIDC 鉴权；旧版连接则提供 `BLOB_READ_WRITE_TOKEN`。两者满足其一即可，未配置时导出接口会明确报错。
 2. 在 Vercel Production 环境变量中配置 Railway MySQL 的公网 `DATABASE_URL`；不要使用 `127.0.0.1` 或 `.railway.internal`。同时添加随机且保密的 `CRON_SECRET`。变更环境变量后重新部署。
 3. `vercel.json` 每天 03:00 UTC 调用一次 `/api/internal/cleanup`，删除过期数据库记录、超过 3 天的 Word 文件和超过 30 天的卡图缓存。Vercel 会使用 `CRON_SECRET` 鉴权；没有该变量时清理请求会返回 401。
 4. 上线后用一张已保存到云端的卡测试导出，等待任务完成并下载 `.docx`。若任务失败，查看该次部署的 Functions 日志和页面错误。单次最多 120 张卡；图片下载较慢的大清单仍受 Vercel 函数执行时间限制。

@@ -1,12 +1,15 @@
 import { del, get, list, put } from "@vercel/blob";
 
 export function usesBlobStorage() {
-  return Boolean(process.env.BLOB_READ_WRITE_TOKEN);
+  // Vercel Blob can use either the classic read-write token or the
+  // project-linked OIDC setup, which exposes BLOB_STORE_ID.
+  return Boolean(process.env.BLOB_READ_WRITE_TOKEN ||
+    (process.env.BLOB_STORE_ID && (process.env.VERCEL || process.env.VERCEL_OIDC_TOKEN)));
 }
 
 export function assertExportStorageConfigured() {
   if (process.env.VERCEL && !usesBlobStorage()) {
-    throw new Error("线上 Word 导出需要配置 Vercel Blob，并关联 BLOB_READ_WRITE_TOKEN。");
+    throw new Error("线上 Word 导出需要配置 Vercel Blob，并关联 BLOB_STORE_ID 或 BLOB_READ_WRITE_TOKEN。");
   }
 }
 

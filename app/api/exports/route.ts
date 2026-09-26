@@ -45,7 +45,7 @@ export async function POST(request: NextRequest) {
     return Response.json(publicExportJob(job), { status: 202 });
   } catch (error) {
     console.error("Export creation failed:", error);
-    return Response.json({ error: error instanceof Error && error.message.includes("BLOB_READ_WRITE_TOKEN")
+    return Response.json({ error: error instanceof Error && error.message.includes("BLOB_")
       ? error.message : "导出服务暂时不可用，请稍后重试。" }, { status: 503 });
   }
 }
