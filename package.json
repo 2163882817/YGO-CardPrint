@@ -16,6 +16,7 @@
   },
   "dependencies": {
     "@prisma/client": "^6.19.0",
+    "@vercel/analytics": "^2.0.1",
     "@vercel/blob": "^2.8.0",
     "docx": "^9.7.2",
     "lucide-react": "^0.468.0",
