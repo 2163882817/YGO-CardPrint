@@ -9,6 +9,7 @@ import { deletePrivateBlob, readPrivateBlob, usesBlobStorage, writePrivateBlob }
 import { getPrisma } from "@/lib/prisma";
 
 export const CARD_IMAGE_CDN_HOST = "cdn.233.momobako.com";
+const FALLBACK_IMAGE_CDN_HOST = "images.ygoprodeck.com";
 export const CARD_IMAGE_CACHE_DAYS = 30;
 const CARD_IMAGE_CACHE_TTL_MS = CARD_IMAGE_CACHE_DAYS * 24 * 60 * 60 * 1000;
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
@@ -17,7 +18,8 @@ const MIN_WIDTH = 400;
 const MIN_HEIGHT = 580;
 const RECOMMENDED_WIDTH = 697;
 const RECOMMENDED_HEIGHT = 1016;
-const MAX_ATTEMPTS = 3;
+const PRIMARY_TIMEOUT_MS = 3_500;
+const FALLBACK_TIMEOUT_MS = 7_000;
 const cacheDirectory = join(process.cwd(), "storage", "card-images");
 const allowedFormats = new Set(["jpeg", "png", "webp"]);
 
@@ -53,6 +55,16 @@ export function isAllowedCardImageUrl(value: string) {
   }
 }
 
+function isAllowedFallbackImageUrl(value: string) {
+  try {
+    const url = new URL(value);
+    return url.protocol === "https:" && url.hostname === FALLBACK_IMAGE_CDN_HOST &&
+      url.search === "" && url.hash === "" && /^\/images\/cards\/\d{1,12}\.jpg$/.test(url.pathname);
+  } catch {
+    return false;
+  }
+}
+
 function sourceUrl(id: string, variant: CardVariant) {
   if (!isValidCardId(id) || !CARD_VARIANTS.some((item) => item.id === variant)) {
     throw new CardImageError("卡图参数无效。", "invalid");
@@ -68,10 +80,6 @@ function cachePath(id: string, variant: CardVariant) {
 
 function blobCachePath(id: string, variant: CardVariant) {
   return `card-images/${id}-${variant}.bin`;
-}
-
-function wait(milliseconds: number) {
-  return new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
 }
 
 async function readResponseBytes(response: Response, label: string) {
@@ -100,34 +108,50 @@ async function readResponseBytes(response: Response, label: string) {
   return { data: Buffer.concat(chunks, total), contentType };
 }
 
-async function fetchFromCdn(url: string, label: string) {
-  let lastError: unknown;
-  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt += 1) {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), 15_000);
+async function fetchFromSource(url: string, label: string, timeoutMs: number) {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, {
+      signal: controller.signal,
+      redirect: "manual",
+      cache: "no-store",
+      headers: { Accept: "image/webp,image/png,image/jpeg" },
+    });
+    if (response.status >= 300 && response.status < 400) {
+      throw new CardImageError(`${label}发生了不允许的 CDN 重定向。`, "invalid");
+    }
+    if (!response.ok) throw new CardImageError(`${label}下载失败（HTTP ${response.status}）。`, "missing");
+    const downloaded = await readResponseBytes(response, label);
+    await inspectImage(downloaded.data, label, downloaded.contentType);
+    return downloaded;
+  } catch (error) {
+    if (error instanceof CardImageError) throw error;
+    const message = error instanceof Error ? error.message : "网络请求失败";
+    throw new CardImageError(`${label}下载失败：${message}`, "missing");
+  } finally {
+    clearTimeout(timeout);
+  }
+}
+
+async function fetchCardImage(id: string, variant: CardVariant, label: string) {
+  const primary = sourceUrl(id, variant);
+  const fallback = `https://${FALLBACK_IMAGE_CDN_HOST}/images/cards/${id}.jpg`;
+  const sources = [
+    { url: primary, allowed: isAllowedCardImageUrl(primary), timeout: PRIMARY_TIMEOUT_MS, label: `${label}（百鸽）` },
+    { url: fallback, allowed: isAllowedFallbackImageUrl(fallback), timeout: FALLBACK_TIMEOUT_MS, label: `${label}（备用卡图）` },
+  ];
+  const failures: string[] = [];
+  for (const source of sources) {
+    if (!source.allowed) continue;
     try {
-      const response = await fetch(url, {
-        signal: controller.signal,
-        redirect: "manual",
-        cache: "no-store",
-        headers: { Accept: "image/webp,image/png,image/jpeg" },
-      });
-      if (response.status >= 300 && response.status < 400) {
-        throw new CardImageError(`${label}发生了不允许的 CDN 重定向。`, "invalid");
-      }
-      if (!response.ok) throw new CardImageError(`${label}下载失败（HTTP ${response.status}）。`, "missing");
-      return await readResponseBytes(response, label);
+      return await fetchFromSource(source.url, source.label, source.timeout);
     } catch (error) {
-      lastError = error;
-      if (error instanceof CardImageError && error.kind === "invalid") throw error;
-      if (attempt < MAX_ATTEMPTS) await wait(350 * 2 ** (attempt - 1));
-    } finally {
-      clearTimeout(timeout);
+      failures.push(error instanceof Error ? error.message : "未知错误");
     }
   }
-  if (lastError instanceof CardImageError) throw lastError;
-  const message = lastError instanceof Error ? lastError.message : "网络请求失败";
-  throw new CardImageError(`${label}下载失败：${message}（已重试 ${MAX_ATTEMPTS} 次）。`, "missing");
+  const kind = failures.some((message) => message.includes("格式") || message.includes("解码")) ? "invalid" : "missing";
+  throw new CardImageError(`${label}下载失败：${failures.join("；")}`, kind);
 }
 
 async function inspectImage(data: Buffer, label: string, contentType?: string) {
@@ -170,7 +194,7 @@ async function updateImageRecord(cid: number, variant: CardVariant, data: {
 }
 
 export async function validateAndCacheCardImage(id: string, cid: number, variant: CardVariant): Promise<ValidatedCardImage> {
-  const url = sourceUrl(id, variant);
+  sourceUrl(id, variant);
   const label = `卡片 ${id} 的 ${variant} 图版`;
   const path = cachePath(id, variant);
   const blobPath = blobCachePath(id, variant);
@@ -205,7 +229,7 @@ export async function validateAndCacheCardImage(id: string, cid: number, variant
   }
   if (!data) {
     try {
-      const downloaded = await fetchFromCdn(url, label);
+      const downloaded = await fetchCardImage(id, variant, label);
       data = downloaded.data;
       inspected = await inspectImage(data, label, downloaded.contentType);
       if (usesBlobStorage()) {

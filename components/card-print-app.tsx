@@ -7,7 +7,7 @@ import {
   FileDown, Layers3, Link2, LoaderCircle, Minus, Plus, RefreshCw, Search, Trash2, X,
 } from "lucide-react";
 import {
-  CARD_VARIANTS, cardImage, itemKey,
+  CARD_VARIANTS, cardImagePreview, itemKey,
   type Card, type CardVariant, type SearchResponse,
 } from "@/lib/cards";
 import { usePrintProject } from "@/components/use-print-project";
@@ -31,7 +31,7 @@ function CardArtwork({ card, variant, className = "", onStatus }: {
       {!failed ? (
         <img
           key={`${card.id}:${variant}`}
-          src={cardImage(card.id, variant)}
+          src={cardImagePreview(card.id, card.cid, variant)}
           alt={`${card.name}的${CARD_VARIANTS.find((item) => item.id === variant)?.label ?? ""}卡图`}
           loading="lazy"
           onLoad={() => onStatus?.("ready")}

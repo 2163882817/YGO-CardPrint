@@ -33,5 +33,8 @@ export interface SearchResponse {
 export const cardImage = (id: string, variant: CardVariant, thumbnail = true) =>
   `https://cdn.233.momobako.com/ygoimg/${variant}/${encodeURIComponent(id)}.webp${thumbnail ? "!half" : ""}`;
 
+export const cardImagePreview = (id: string, cid: number, variant: CardVariant) =>
+  `/api/card-images?id=${encodeURIComponent(id)}&cid=${cid}&variant=${variant}`;
+
 export const itemKey = (item: Pick<PrintItem, "card" | "variant">) =>
   `${item.card.cid}:${item.variant}`;
