@@ -26,7 +26,7 @@ npm run dev
 - 可复制找回链接，在其他浏览器恢复同一清单；项目令牌仅以哈希保存于数据库。
 - 每页 3 × 3、A4 纵向的页面预览，显示张数、页数和 59 × 86 mm 规格。
 
-**Word 导出已可用。** 点击“导出 Word 文档”后，服务端会创建导出任务，下载卡图并使用 `docx` 生成 A4 纵向 3 × 3 的 `.docx` 文件；生成失败会在页面提示原因。MySQL 只保存任务状态和清单快照，Word 文件不会写入 MySQL。本地文件保存在 `storage/exports`；Vercel 上保存在私有 Vercel Blob。
+**Word 导出已可用。** 点击“导出 Word 文档”后，服务端会创建导出任务，下载卡图并使用 `docx` 生成 A4 纵向 3 × 3 的 `.docx` 文件；生成失败会在页面提示原因。MySQL 只保存任务状态和清单快照，Word 文件不会写入 MySQL。本地文件保存在 `storage/exports`；Vercel 上保存在私有 Vercel Blob。若 Vercel Blob 存储被暂停，页面会自动改为直接生成并下载，文件不会保存到云端，生成期间需保持页面打开。
 
 页面卡图经同域接口 `/api/card-images` 代理并生成 WebP 预览，浏览器无需直接连接图片 CDN。服务端优先读取百鸽 `cdn.233.momobako.com`，失败后回退到 YGOProDeck `images.ygoprodeck.com` 通用卡图；只接受固定 HTTPS 域名和卡号路径，禁止重定向到其他地址。两种来源都会检查 JPEG、PNG、WebP 格式、完整解码、像素尺寸和标准卡比例。预览与 Word 导出共用经过校验的原图缓存：本地缓存于 `storage/card-images`，Vercel 上缓存于私有 Blob。30 天后尝试刷新，回源失败时继续使用已校验的旧图；180 天后清理缓存。缓存写入故障不会阻止当次图片显示，预览缩略图另由浏览器及 Vercel CDN 缓存。低于 697 × 1016 px 但仍可用的图片会在导出任务中返回清晰度警告；两种来源都无可用图片时会显示暂无卡图并阻止导出。
 
@@ -65,6 +65,8 @@ Windows 用户可以双击项目根目录的 `启动前端.bat`。脚本会自�
 2. 在 Vercel Production 环境变量中配置 Railway MySQL 的公网 `DATABASE_URL`；不要使用 `127.0.0.1` 或 `.railway.internal`。同时添加随机且保密的 `CRON_SECRET`。变更环境变量后重新部署。
 3. `vercel.json` 每天 03:00 UTC 调用一次 `/api/internal/cleanup`，删除过期数据库记录、超过 3 天的 Word 文件和超过 180 天的卡图缓存。Vercel 会使用 `CRON_SECRET` 鉴权；没有该变量时清理请求会返回 401。
 4. 上线后用一张已保存到云端的卡测试导出，等待任务完成并下载 `.docx`。若任务失败，查看该次部署的 Functions 日志和页面错误。单次最多 120 张卡；图片下载较慢的大清单仍受 Vercel 函数执行时间限制。
+
+若看到 `Vercel Blob: This store has been suspended`，请在 Vercel Storage 检查该 Blob 存储的暂停原因和账户用量，恢复服务或连接新的私有 Blob 存储，并确认 Production 环境的 `BLOB_STORE_ID` 或 `BLOB_READ_WRITE_TOKEN` 指向当前存储后重新部署。直接下载兜底只能完成当次请求，不能恢复被暂停存储中的历史文件，也仍受函数执行时间限制。
 
 如果是自行部署的 Windows 服务器，请在任务计划程序中设置每天运行一次 `清理过期数据.bat`。
 

@@ -1,4 +1,22 @@
-import { del, get, list, put } from "@vercel/blob";
+import { BlobStoreSuspendedError, del, get, list, put } from "@vercel/blob";
+
+export const SUSPENDED_BLOB_ERROR = "Vercel Blob 存储已暂停，已切换为直接下载模式。";
+
+export function isSuspendedBlobStore(error: unknown) {
+  return error instanceof BlobStoreSuspendedError ||
+    (error instanceof Error && /store has been suspended/i.test(error.message));
+}
+
+export async function isBlobStoreSuspended() {
+  if (!usesBlobStorage()) return false;
+  try {
+    await list({ prefix: "exports/", limit: 1 });
+    return false;
+  } catch (error) {
+    if (isSuspendedBlobStore(error)) return true;
+    throw error;
+  }
+}
 
 export function usesBlobStorage() {
   // Vercel Blob can use either the classic read-write token or the
