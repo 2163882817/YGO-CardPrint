@@ -17,6 +17,15 @@ type ExportState = "idle" | "submitting" | "processing" | "completed" | "failed"
 type BatchResult = { input: string; kind: "password" | "name"; matches: Card[]; resolved: Card | null; requiresConfirmation: boolean; hasMore: boolean; error: string | null };
 const PAGE_CARD_COUNT = 9;
 const suggested = ["青眼白龙", "黑魔术师", "灰流丽", "真红眼黑龙"];
+const DIRECT_DOWNLOAD_COOKIE = "ygo_export_download";
+const directDownloadErrors: Record<string, string> = {
+  PROJECT_EXPIRED: "打印项目已失效，请刷新页面后重试。",
+  PROJECT_CONFLICT: "云端清单尚未同步，请稍后重试。",
+  IMAGE_UNAVAILABLE: "部分卡图暂时不可用，请更换图版或稍后重试。",
+  EXPORT_GENERATION_FAILED: "Word 文件生成失败，请稍后重试。",
+  INVALID_ITEMS: "打印清单无效，请刷新页面后重试。",
+  REQUEST_TOO_LARGE: "打印清单请求过大，请减少卡片后重试。",
+};
 
 function CardArtwork({ card, variant, className = "", attempt = 0, onStatus }: {
   card: Card;
@@ -260,40 +269,86 @@ export default function CardPrintApp() {
       const exportItems = items.map(({ card, variant, quantity }) => ({
         card: { id: card.id, cid: card.cid, name: card.name }, variant, quantity,
       }));
-      const downloadDirect = async () => {
+      const submitDirectDownload = async () => {
         setExportState("processing");
-        const response = await fetch("/api/exports/direct", {
+        const requestId = typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (character) => {
+            const value = Math.floor(Math.random() * 16);
+            return (character === "x" ? value : (value & 3) | 8).toString(16);
+          });
+        const frameName = `ygo-export-${requestId.replace(/-/g, "")}`;
+        const frame = document.createElement("iframe");
+        frame.name = frameName;
+        frame.title = "Word 文件下载";
+        frame.setAttribute("aria-hidden", "true");
+        frame.style.position = "fixed";
+        frame.style.width = "1px";
+        frame.style.height = "1px";
+        frame.style.border = "0";
+        frame.style.opacity = "0";
+        frame.style.pointerEvents = "none";
+        document.body.appendChild(frame);
+
+        const form = document.createElement("form");
+        form.method = "POST";
+        form.action = `/api/exports/direct?requestId=${encodeURIComponent(requestId)}`;
+        form.target = frameName;
+        form.acceptCharset = "UTF-8";
+        form.style.display = "none";
+        const itemsField = document.createElement("input");
+        itemsField.type = "hidden";
+        itemsField.name = "items";
+        itemsField.value = JSON.stringify(exportItems);
+        const requestField = document.createElement("input");
+        requestField.type = "hidden";
+        requestField.name = "requestId";
+        requestField.value = requestId;
+        form.append(itemsField, requestField);
+        document.body.appendChild(form);
+        form.submit();
+        form.remove();
+
+        await new Promise<void>((resolve, reject) => {
+          const startedAt = Date.now();
+          const timer = window.setInterval(() => {
+            const downloadCookie = document.cookie.split("; ").find((entry) => entry.startsWith(`${DIRECT_DOWNLOAD_COOKIE}=`))?.slice(`${DIRECT_DOWNLOAD_COOKIE}=`.length);
+            if (downloadCookie === requestId) {
+              window.clearInterval(timer);
+              frame.remove();
+              resolve();
+            } else if (downloadCookie?.startsWith(`${requestId}:error:`)) {
+              window.clearInterval(timer);
+              frame.remove();
+              const code = downloadCookie.slice(`${requestId}:error:`.length);
+              reject(new Error(directDownloadErrors[code] || "直接下载失败，请刷新页面后重试。"));
+            } else if (Date.now() - startedAt > 5 * 60 * 1000) {
+              window.clearInterval(timer);
+              frame.remove();
+              reject(new Error("直接下载等待超时，请检查网络后重试。"));
+            }
+          }, 500);
+        });
+        setExportState("completed");
+        setNotice("Word 文件已生成，正在开始下载。");
+      };
+      let createResponse: Response;
+      try {
+        createResponse = await fetch("/api/exports", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ items: exportItems }),
         });
-        if (!response.ok) {
-          const payload = await response.json().catch(() => ({})) as { error?: string };
-          throw new Error(payload.error || "Word 文件生成失败。");
+      } catch (error) {
+        if (error instanceof TypeError) {
+          await submitDirectDownload();
+          return;
         }
-        const blob = await response.blob();
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.href = url;
-        link.download = "ygo-cardprint.docx";
-        document.body.appendChild(link);
-        link.click();
-        link.remove();
-        window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
-        setExportState("completed");
-        const lowResolutionCount = Number(response.headers.get("X-Low-Resolution-Count") || 0);
-        setNotice(lowResolutionCount > 0
-          ? `Word 文件已生成，正在开始下载。${lowResolutionCount} 张卡图分辨率偏低，打印可能不够清晰。`
-          : "Word 文件已生成，正在开始下载。");
-      };
-      const createResponse = await fetch("/api/exports", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ items: exportItems }),
-      });
+        throw error;
+      }
       const created = await createResponse.json() as { id?: string; error?: string; code?: string };
       if (created.code === "BLOB_SUSPENDED") {
-        await downloadDirect();
+        await submitDirectDownload();
         return;
       }
       if (!createResponse.ok || !created.id) throw new Error(created.error || "创建导出任务失败，请稍后重试。");
@@ -301,12 +356,21 @@ export default function CardPrintApp() {
       setExportState("processing");
       for (let attempt = 0; attempt < 600; attempt += 1) {
         await new Promise((resolve) => window.setTimeout(resolve, 1000));
-        const statusResponse = await fetch(`/api/exports/${encodeURIComponent(created.id)}`, { cache: "no-store" });
+        let statusResponse: Response;
+        try {
+          statusResponse = await fetch(`/api/exports/${encodeURIComponent(created.id)}`, { cache: "no-store" });
+        } catch (error) {
+          if (error instanceof TypeError) {
+            await submitDirectDownload();
+            return;
+          }
+          throw error;
+        }
         const status = await statusResponse.json() as { status?: ExportState; error?: string; downloadUrl?: string; warnings?: string[] };
         if (!statusResponse.ok) throw new Error(status.error || "查询导出任务失败。");
         if (status.status === "failed") {
           if ((status.error || "").includes("存储已暂停")) {
-            await downloadDirect();
+            await submitDirectDownload();
             return;
           }
           throw new Error(status.error || "Word 文件生成失败。");
@@ -322,7 +386,9 @@ export default function CardPrintApp() {
       }
       throw new Error("生成时间较长，请稍后重试。");
     } catch (reason) {
-      const message = reason instanceof Error ? reason.message : "Word 导出失败，请稍后重试。";
+      const message = reason instanceof TypeError
+        ? "网络连接中断，已尝试直接下载；如果没有开始下载，请检查网络后重试。"
+        : reason instanceof Error ? reason.message : "Word 导出失败，请稍后重试。";
       setExportState("failed");
       setExportError(message);
       setNotice(message);
