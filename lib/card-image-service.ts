@@ -11,7 +11,10 @@ import { getPrisma } from "@/lib/prisma";
 export const CARD_IMAGE_CDN_HOST = "cdn.233.momobako.com";
 const FALLBACK_IMAGE_CDN_HOST = "images.ygoprodeck.com";
 export const CARD_IMAGE_CACHE_DAYS = 30;
+export const CARD_IMAGE_RETENTION_DAYS = 180;
 const CARD_IMAGE_CACHE_TTL_MS = CARD_IMAGE_CACHE_DAYS * 24 * 60 * 60 * 1000;
+const CARD_IMAGE_RETENTION_MS = CARD_IMAGE_RETENTION_DAYS * 24 * 60 * 60 * 1000;
+const REFRESH_RETRY_DELAY_MS = 5 * 60 * 1000;
 const MAX_IMAGE_BYTES = 12 * 1024 * 1024;
 const MAX_IMAGE_PIXELS = 24_000_000;
 const MIN_WIDTH = 400;
@@ -24,7 +27,7 @@ const cacheDirectory = join(process.cwd(), "storage", "card-images");
 const allowedFormats = new Set(["jpeg", "png", "webp"]);
 
 export class CardImageError extends Error {
-  constructor(message: string, readonly kind: "missing" | "invalid") {
+  constructor(message: string, readonly kind: "missing" | "invalid", readonly retryable = false) {
     super(message);
     this.name = "CardImageError";
   }
@@ -121,14 +124,15 @@ async function fetchFromSource(url: string, label: string, timeoutMs: number) {
     if (response.status >= 300 && response.status < 400) {
       throw new CardImageError(`${label}发生了不允许的 CDN 重定向。`, "invalid");
     }
-    if (!response.ok) throw new CardImageError(`${label}下载失败（HTTP ${response.status}）。`, "missing");
+    if (!response.ok) throw new CardImageError(`${label}下载失败（HTTP ${response.status}）。`, "missing",
+      response.status === 429 || response.status >= 500);
     const downloaded = await readResponseBytes(response, label);
     await inspectImage(downloaded.data, label, downloaded.contentType);
     return downloaded;
   } catch (error) {
     if (error instanceof CardImageError) throw error;
     const message = error instanceof Error ? error.message : "网络请求失败";
-    throw new CardImageError(`${label}下载失败：${message}`, "missing");
+    throw new CardImageError(`${label}下载失败：${message}`, "missing", true);
   } finally {
     clearTimeout(timeout);
   }
@@ -144,10 +148,14 @@ async function fetchCardImage(id: string, variant: CardVariant, label: string) {
   const failures: string[] = [];
   for (const source of sources) {
     if (!source.allowed) continue;
-    try {
-      return await fetchFromSource(source.url, source.label, source.timeout);
-    } catch (error) {
-      failures.push(error instanceof Error ? error.message : "未知错误");
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        return await fetchFromSource(source.url, source.label, source.timeout);
+      } catch (error) {
+        failures.push(error instanceof Error ? error.message : "未知错误");
+        if (!(error instanceof CardImageError && error.retryable) || attempt > 0) break;
+        await new Promise((resolve) => setTimeout(resolve, 200));
+      }
     }
   }
   const kind = failures.some((message) => message.includes("格式") || message.includes("解码")) ? "invalid" : "missing";
@@ -193,28 +201,50 @@ async function updateImageRecord(cid: number, variant: CardVariant, data: {
   }).catch((error) => console.error("Card image metadata update failed:", error));
 }
 
+const inFlight = new Map<string, Promise<ValidatedCardImage>>();
+const refreshRetryAfter = new Map<string, number>();
+
 export async function validateAndCacheCardImage(id: string, cid: number, variant: CardVariant): Promise<ValidatedCardImage> {
   sourceUrl(id, variant);
+  const key = `${id}:${variant}`;
+  const pending = inFlight.get(key);
+  if (pending) return pending;
+  const task = loadCardImage(id, cid, variant);
+  inFlight.set(key, task);
+  try {
+    return await task;
+  } finally {
+    inFlight.delete(key);
+  }
+}
+
+async function loadCardImage(id: string, cid: number, variant: CardVariant): Promise<ValidatedCardImage> {
   const label = `卡片 ${id} 的 ${variant} 图版`;
+  const key = `${id}:${variant}`;
   const path = cachePath(id, variant);
   const blobPath = blobCachePath(id, variant);
   let data: Buffer | undefined;
+  let cachedAge = Infinity;
   let cacheHit = false;
   if (usesBlobStorage()) {
-    const cached = await readPrivateBlob(blobPath);
-    if (cached && Date.now() - cached.uploadedAt.getTime() <= CARD_IMAGE_CACHE_TTL_MS) {
-      data = cached.data;
-      cacheHit = true;
+    try {
+      const cached = await readPrivateBlob(blobPath);
+      if (cached) {
+        cachedAge = Date.now() - cached.uploadedAt.getTime();
+        if (cachedAge <= CARD_IMAGE_RETENTION_MS) data = cached.data;
+      }
+    } catch (error) {
+      console.error("Card image cache read failed:", error);
     }
   } else {
     try {
       const details = await stat(path);
-      if (Date.now() - details.mtimeMs <= CARD_IMAGE_CACHE_TTL_MS) {
-        data = await readFile(path);
-        cacheHit = true;
-      }
+      cachedAge = Date.now() - details.mtimeMs;
+      if (cachedAge <= CARD_IMAGE_RETENTION_MS) data = await readFile(path);
     } catch (error) {
-      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) throw error;
+      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
+        console.error("Card image cache read failed:", error);
+      }
     }
   }
 
@@ -225,28 +255,45 @@ export async function validateAndCacheCardImage(id: string, cid: number, variant
     if (usesBlobStorage()) await deletePrivateBlob(blobPath).catch(() => {});
     else await unlink(path).catch(() => {});
     data = undefined;
-    cacheHit = false;
+    refreshRetryAfter.delete(key);
   }
-  if (!data) {
+  if (data && (cachedAge <= CARD_IMAGE_CACHE_TTL_MS || Date.now() < (refreshRetryAfter.get(key) ?? 0))) {
+    cacheHit = true;
+  }
+  if (!cacheHit) {
     try {
       const downloaded = await fetchCardImage(id, variant, label);
-      data = downloaded.data;
-      inspected = await inspectImage(data, label, downloaded.contentType);
+      const freshData = downloaded.data;
+      const freshInspection = await inspectImage(freshData, label, downloaded.contentType);
+      data = freshData;
+      inspected = freshInspection;
+      refreshRetryAfter.delete(key);
       if (usesBlobStorage()) {
-        await writePrivateBlob(blobPath, data, downloaded.contentType);
+        await writePrivateBlob(blobPath, data, downloaded.contentType).catch((error) =>
+          console.error("Card image cache write failed:", error));
       } else {
-        await mkdir(cacheDirectory, { recursive: true });
         const temporary = join(cacheDirectory, `${id}-${variant}.${randomUUID()}.tmp`);
-        await writeFile(temporary, data);
-        await rename(temporary, path);
+        try {
+          await mkdir(cacheDirectory, { recursive: true });
+          await writeFile(temporary, data);
+          await rename(temporary, path);
+        } catch (error) {
+          console.error("Card image cache write failed:", error);
+          await unlink(temporary).catch(() => {});
+        }
       }
     } catch (error) {
-      await updateImageRecord(cid, variant, { status: error instanceof CardImageError && error.kind === "invalid" ? "INVALID" : "MISSING" });
-      throw error;
+      if (!data) {
+        await updateImageRecord(cid, variant, { status: error instanceof CardImageError && error.kind === "invalid" ? "INVALID" : "MISSING" });
+        throw error;
+      }
+      cacheHit = true;
+      refreshRetryAfter.set(key, Date.now() + REFRESH_RETRY_DELAY_MS);
+      console.warn("Card image refresh failed; serving verified cached image:", error);
     }
   }
 
-  if (!inspected) {
+  if (!data || !inspected) {
     throw new CardImageError(`${label}校验失败。`, "invalid");
   }
 

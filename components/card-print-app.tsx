@@ -18,10 +18,11 @@ type BatchResult = { input: string; kind: "password" | "name"; matches: Card[]; 
 const PAGE_CARD_COUNT = 9;
 const suggested = ["青眼白龙", "黑魔术师", "灰流丽", "真红眼黑龙"];
 
-function CardArtwork({ card, variant, className = "", onStatus }: {
+function CardArtwork({ card, variant, className = "", attempt = 0, onStatus }: {
   card: Card;
   variant: CardVariant;
   className?: string;
+  attempt?: number;
   onStatus?: (status: ImageStatus) => void;
 }) {
   const [failed, setFailed] = useState(false);
@@ -31,7 +32,7 @@ function CardArtwork({ card, variant, className = "", onStatus }: {
       {!failed ? (
         <img
           key={`${card.id}:${variant}`}
-          src={cardImagePreview(card.id, card.cid, variant)}
+          src={`${cardImagePreview(card.id, card.cid, variant)}${attempt ? `&retry=${attempt}` : ""}`}
           alt={`${card.name}的${CARD_VARIANTS.find((item) => item.id === variant)?.label ?? ""}卡图`}
           loading="lazy"
           onLoad={() => onStatus?.("ready")}
@@ -46,17 +47,18 @@ function CardArtwork({ card, variant, className = "", onStatus }: {
     </div>
   );
 }
-function VariantOption({ card, variant, selected, onSelect, onStatus }: {
+function VariantOption({ card, variant, selected, attempt, onSelect, onRetry, onStatus }: {
   card: Card;
   variant: typeof CARD_VARIANTS[number];
   selected: boolean;
+  attempt: number;
   onSelect: () => void;
+  onRetry: () => void;
   onStatus: (status: ImageStatus) => void;
 }) {
   const [status, setStatus] = useState<ImageStatus>("loading");
-  const [attempt, setAttempt] = useState(0);
   const updateStatus = (next: ImageStatus) => { setStatus(next); onStatus(next); };
-  const retry = () => { updateStatus("loading"); setAttempt((current) => current + 1); };
+  const retry = () => { updateStatus("loading"); onRetry(); };
 
   return (
     <button
@@ -66,7 +68,7 @@ function VariantOption({ card, variant, selected, onSelect, onStatus }: {
       aria-pressed={selected}
       aria-label={status === "missing" ? `${variant.label}卡图加载失败，点击重试` : undefined}
     >
-      <CardArtwork key={attempt} card={card} variant={variant.id} onStatus={updateStatus} />
+      <CardArtwork key={attempt} card={card} variant={variant.id} attempt={attempt} onStatus={updateStatus} />
       <span className="variant-option__copy"><strong>{variant.label}</strong><small>{status === "missing" ? "加载失败 · 点击重试" : variant.sublabel}</small></span>
       <span className="variant-option__check" aria-hidden="true">{selected && <Check size={13} strokeWidth={2.6} />}</span>
     </button>
@@ -85,6 +87,7 @@ export default function CardPrintApp() {
   const [selectedCard, setSelectedCard] = useState<Card | null>(null);
   const [selectedVariant, setSelectedVariant] = useState<CardVariant>("ygopro");
   const [imageStatus, setImageStatus] = useState<Partial<Record<CardVariant, ImageStatus>>>({});
+  const [imageAttempts, setImageAttempts] = useState<Partial<Record<CardVariant, number>>>({});
   const [previewPage, setPreviewPage] = useState(0);
   const [notice, setNotice] = useState("");
   const [exportState, setExportState] = useState<ExportState>("idle");
@@ -167,6 +170,7 @@ export default function CardPrintApp() {
     setSelectedCard(card);
     setSelectedVariant("ygopro");
     setImageStatus({});
+    setImageAttempts({});
     try {
       const response = await fetch(`/api/cards/${encodeURIComponent(card.id)}`, { cache: "no-store" });
       if (response.ok) {
@@ -397,8 +401,8 @@ export default function CardPrintApp() {
 
       {selectedCard && <div className="dialog-backdrop" onMouseDown={(event) => { if (event.target === event.currentTarget) setSelectedCard(null); }}><div ref={dialogRef} className="card-dialog" role="dialog" aria-modal="true" aria-labelledby="dialog-title">
         <button ref={closeButtonRef} type="button" className="dialog-close" aria-label="关闭卡图选择" onClick={() => setSelectedCard(null)}><X size={20} /></button>
-        <div className="dialog-preview"><div className="dialog-preview__top">CARD PREVIEW <span>·</span> {selectedCard.id}</div><CardArtwork key={`${selectedCard.id}:${selectedVariant}`} card={selectedCard} variant={selectedVariant} onStatus={(status) => setImageStatus((current) => ({ ...current, [selectedVariant]: status }))} /><p>预览图仅供选版，正式导出将使用原图。</p></div>
-        <div className="dialog-content"><div className="dialog-eyebrow">选择卡图 / SELECT ARTWORK</div><h2 id="dialog-title">{selectedCard.name}</h2><p className="dialog-subtitle">{selectedCard.enName || selectedCard.jpName || `CID ${selectedCard.cid}`}</p><div className="dialog-card-meta"><span>密码 {selectedCard.id} · CID {selectedCard.cid}</span>{selectedCard.types && <span>{selectedCard.types.split("\n")[0]}</span>}</div>{selectedCard.description && <div className="dialog-description"><strong>卡片效果</strong><p>{selectedCard.description}</p></div>}<div className="dialog-rule" /><div className="dialog-label">选择你想打印的图版 <span>不同图版可分别加入</span></div><div className="variant-grid">{CARD_VARIANTS.map((variant) => <VariantOption key={`${selectedCard.id}:${variant.id}`} card={selectedCard} variant={variant} selected={selectedVariant === variant.id} onSelect={() => setSelectedVariant(variant.id)} onStatus={(status) => setImageStatus((current) => ({ ...current, [variant.id]: status }))} />)}</div><div className="dialog-bottom"><div className="dialog-tip"><AlertCircle size={16} /><span>{imageStatus[selectedVariant] === "missing" ? "当前图版暂无卡图，请选择其他版本。" : imageStatus[selectedVariant] === "ready" ? "图版可用。清单中的卡图将在后端导出时再次校验。" : "正在检查所选图版是否可用…"}</span></div><button type="button" className="dialog-add" disabled={imageStatus[selectedVariant] !== "ready" || total >= 120} onClick={addItem}><Plus size={18} />加入打印清单<ArrowRight size={17} /></button></div></div>
+        <div className="dialog-preview"><div className="dialog-preview__top">CARD PREVIEW <span>·</span> {selectedCard.id}</div><CardArtwork key={`${selectedCard.id}:${selectedVariant}:${imageAttempts[selectedVariant] ?? 0}`} card={selectedCard} variant={selectedVariant} attempt={imageAttempts[selectedVariant] ?? 0} onStatus={(status) => setImageStatus((current) => ({ ...current, [selectedVariant]: status }))} /><p>预览图仅供选版，正式导出将使用原图。</p></div>
+        <div className="dialog-content"><div className="dialog-eyebrow">选择卡图 / SELECT ARTWORK</div><h2 id="dialog-title">{selectedCard.name}</h2><p className="dialog-subtitle">{selectedCard.enName || selectedCard.jpName || `CID ${selectedCard.cid}`}</p><div className="dialog-card-meta"><span>密码 {selectedCard.id} · CID {selectedCard.cid}</span>{selectedCard.types && <span>{selectedCard.types.split("\n")[0]}</span>}</div>{selectedCard.description && <div className="dialog-description"><strong>卡片效果</strong><p>{selectedCard.description}</p></div>}<div className="dialog-rule" /><div className="dialog-label">选择你想打印的图版 <span>不同图版可分别加入</span></div><div className="variant-grid">{CARD_VARIANTS.map((variant) => <VariantOption key={`${selectedCard.id}:${variant.id}`} card={selectedCard} variant={variant} selected={selectedVariant === variant.id} attempt={imageAttempts[variant.id] ?? 0} onSelect={() => setSelectedVariant(variant.id)} onRetry={() => setImageAttempts((current) => ({ ...current, [variant.id]: (current[variant.id] ?? 0) + 1 }))} onStatus={(status) => setImageStatus((current) => ({ ...current, [variant.id]: status }))} />)}</div><div className="dialog-bottom"><div className="dialog-tip"><AlertCircle size={16} /><span>{imageStatus[selectedVariant] === "missing" ? "当前图版暂无卡图，请选择其他版本。" : imageStatus[selectedVariant] === "ready" ? "图版可用。清单中的卡图将在后端导出时再次校验。" : "正在检查所选图版是否可用…"}</span></div><button type="button" className="dialog-add" disabled={imageStatus[selectedVariant] !== "ready" || total >= 120} onClick={addItem}><Plus size={18} />加入打印清单<ArrowRight size={17} /></button></div></div>
       </div></div>}
       {notice && <div className={`toast ${notice === "批量解析功能暂未开放" ? "toast--error" : ""}`} role={notice === "批量解析功能暂未开放" ? "alert" : "status"}>{notice === "批量解析功能暂未开放" ? <AlertCircle size={16} /> : <Check size={16} />}{notice}</div>}
     </div>

@@ -2,7 +2,7 @@ import { readdir, stat, unlink } from "node:fs/promises";
 import { join } from "node:path";
 
 import { PROJECT_IDLE_DAYS } from "@/lib/print-project";
-import { CARD_IMAGE_CACHE_DAYS } from "@/lib/card-image-service";
+import { CARD_IMAGE_RETENTION_DAYS } from "@/lib/card-image-service";
 import { deleteExpiredPrivateBlobs, usesBlobStorage } from "@/lib/blob-storage";
 import { getPrisma } from "@/lib/prisma";
 
@@ -20,7 +20,7 @@ export async function cleanupExpiredData(includeBlobFiles = true) {
   const now = new Date();
   const wordCutoff = beforeDays(WORD_FILE_RETENTION_DAYS);
   const projectCutoff = beforeDays(PROJECT_IDLE_DAYS);
-  const cacheCutoff = beforeDays(CARD_IMAGE_CACHE_DAYS);
+  const cacheCutoff = beforeDays(CARD_IMAGE_RETENTION_DAYS);
 
   const { deletedJobs, deletedProjects, deletedCards } = await client.$transaction(async (tx) => {
     const jobs = await tx.exportJob.deleteMany({
