@@ -3,7 +3,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
-  AlertCircle, ArrowDown, ArrowRight, ArrowUp, Check, ChevronLeft, ChevronRight,
+  AlertCircle, ArrowDown, ArrowRight, ArrowUp, ArrowUpRight, Check, ChevronLeft, ChevronRight,
   FileDown, Layers3, Link2, LoaderCircle, Minus, Plus, RefreshCw, Search, Trash2, X,
 } from "lucide-react";
 import {
@@ -406,7 +406,24 @@ export default function CardPrintApp() {
           <nav className="desktop-nav" aria-label="主导航">
             <a href="#search">查找卡片</a><a href="#how-it-works">使用说明</a>
           </nav>
-          <a className="header-tray" href="#print-tray"><Layers3 size={17} /> 打印清单 <span>{total}</span></a>
+          <div className="header-actions">
+            <a
+              className="creator-link"
+              href="https://space.bilibili.com/277807657?spm_id_from=333.1007.0.0"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="关注up主喵，打开 B 站主页（新标签页）"
+            >
+              <svg className="creator-link__tv" viewBox="0 0 28 28" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                <path d="m9 3 4 5m6-5-4 5" />
+                <rect x="3" y="8" width="22" height="17" rx="4" />
+                <path d="m8.5 16 2-2m7 2 2-2M8 25v1m12-1v1" />
+              </svg>
+              <span>关注up主喵</span>
+              <ArrowUpRight className="creator-link__arrow" size={15} aria-hidden="true" />
+            </a>
+            <a className="header-tray" href="#print-tray"><Layers3 size={17} /> 打印清单 <span>{total}</span></a>
+          </div>
         </div>
       </header>
 
