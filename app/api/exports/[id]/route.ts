@@ -1,10 +1,12 @@
 import { getExportJob, publicExportJob } from "@/lib/export-store";
+import { CLOUD_FEATURES_ENABLED, cloudPausedResponse } from "@/lib/cloud-features";
 import { PROJECT_COOKIE, getProjectByToken } from "@/lib/print-project";
 import { NextRequest } from "next/server";
 
 export const runtime = "nodejs";
 
 export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  if (!CLOUD_FEATURES_ENABLED) return cloudPausedResponse();
   const { id } = await context.params;
   try {
     const project = await getProjectByToken(request.cookies.get(PROJECT_COOKIE)?.value);

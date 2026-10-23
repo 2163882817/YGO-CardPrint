@@ -1,12 +1,11 @@
 import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, stat, unlink, writeFile } from "node:fs/promises";
 import { join } from "node:path";
+import { tmpdir } from "node:os";
 
 import sharp from "sharp";
 
 import { CARD_VARIANTS, cardImage, type CardVariant } from "@/lib/cards";
-import { deletePrivateBlob, readPrivateBlob, usesBlobStorage, writePrivateBlob } from "@/lib/blob-storage";
-import { getPrisma } from "@/lib/prisma";
 
 export const CARD_IMAGE_CDN_HOST = "cdn.233.momobako.com";
 const FALLBACK_IMAGE_CDN_HOST = "images.ygoprodeck.com";
@@ -23,7 +22,10 @@ const RECOMMENDED_WIDTH = 697;
 const RECOMMENDED_HEIGHT = 1016;
 const PRIMARY_TIMEOUT_MS = 3_500;
 const FALLBACK_TIMEOUT_MS = 7_000;
-const cacheDirectory = join(process.cwd(), "storage", "card-images");
+// Vercel's application directory is read-only; its temporary cache is disposable.
+const cacheDirectory = process.env.VERCEL
+  ? join(tmpdir(), "ygo-cardprint", "card-images")
+  : join(process.cwd(), "storage", "card-images");
 const allowedFormats = new Set(["jpeg", "png", "webp"]);
 
 export class CardImageError extends Error {
@@ -79,10 +81,6 @@ function sourceUrl(id: string, variant: CardVariant) {
 
 function cachePath(id: string, variant: CardVariant) {
   return join(cacheDirectory, `${id}-${variant}.bin`);
-}
-
-function blobCachePath(id: string, variant: CardVariant) {
-  return `card-images/${id}-${variant}.bin`;
 }
 
 async function readResponseBytes(response: Response, label: string) {
@@ -189,27 +187,16 @@ async function inspectImage(data: Buffer, label: string, contentType?: string) {
   return { width: metadata.width, height: metadata.height, format: metadata.format as "jpeg" | "png" | "webp", warnings };
 }
 
-async function updateImageRecord(cid: number, variant: CardVariant, data: {
-  status: "READY" | "MISSING" | "INVALID";
-  width?: number;
-  height?: number;
-  checksum?: string;
-}) {
-  await getPrisma().cardImage.updateMany({
-    where: { cardCid: cid, variant },
-    data: { ...data, checkedAt: new Date() },
-  }).catch((error) => console.error("Card image metadata update failed:", error));
-}
-
 const inFlight = new Map<string, Promise<ValidatedCardImage>>();
 const refreshRetryAfter = new Map<string, number>();
 
 export async function validateAndCacheCardImage(id: string, cid: number, variant: CardVariant): Promise<ValidatedCardImage> {
+  if (!Number.isSafeInteger(cid) || cid <= 0) throw new CardImageError("卡片 CID 无效。", "invalid");
   sourceUrl(id, variant);
   const key = `${id}:${variant}`;
   const pending = inFlight.get(key);
   if (pending) return pending;
-  const task = loadCardImage(id, cid, variant);
+  const task = loadCardImage(id, variant);
   inFlight.set(key, task);
   try {
     return await task;
@@ -218,42 +205,27 @@ export async function validateAndCacheCardImage(id: string, cid: number, variant
   }
 }
 
-async function loadCardImage(id: string, cid: number, variant: CardVariant): Promise<ValidatedCardImage> {
+async function loadCardImage(id: string, variant: CardVariant): Promise<ValidatedCardImage> {
   const label = `卡片 ${id} 的 ${variant} 图版`;
   const key = `${id}:${variant}`;
   const path = cachePath(id, variant);
-  const blobPath = blobCachePath(id, variant);
   let data: Buffer | undefined;
   let cachedAge = Infinity;
   let cacheHit = false;
-  if (usesBlobStorage()) {
-    try {
-      const cached = await readPrivateBlob(blobPath);
-      if (cached) {
-        cachedAge = Date.now() - cached.uploadedAt.getTime();
-        if (cachedAge <= CARD_IMAGE_RETENTION_MS) data = cached.data;
-      }
-    } catch (error) {
+  try {
+    const details = await stat(path);
+    cachedAge = Date.now() - details.mtimeMs;
+    if (cachedAge <= CARD_IMAGE_RETENTION_MS) data = await readFile(path);
+  } catch (error) {
+    if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
       console.error("Card image cache read failed:", error);
     }
-  } else {
-    try {
-      const details = await stat(path);
-      cachedAge = Date.now() - details.mtimeMs;
-      if (cachedAge <= CARD_IMAGE_RETENTION_MS) data = await readFile(path);
-    } catch (error) {
-      if (!(error instanceof Error && "code" in error && error.code === "ENOENT")) {
-        console.error("Card image cache read failed:", error);
-      }
-    }
   }
-
   let inspected;
   try {
     if (data) inspected = await inspectImage(data, label);
   } catch {
-    if (usesBlobStorage()) await deletePrivateBlob(blobPath).catch(() => {});
-    else await unlink(path).catch(() => {});
+    await unlink(path).catch(() => {});
     data = undefined;
     refreshRetryAfter.delete(key);
   }
@@ -268,23 +240,17 @@ async function loadCardImage(id: string, cid: number, variant: CardVariant): Pro
       data = freshData;
       inspected = freshInspection;
       refreshRetryAfter.delete(key);
-      if (usesBlobStorage()) {
-        await writePrivateBlob(blobPath, data, downloaded.contentType).catch((error) =>
-          console.error("Card image cache write failed:", error));
-      } else {
-        const temporary = join(cacheDirectory, `${id}-${variant}.${randomUUID()}.tmp`);
-        try {
-          await mkdir(cacheDirectory, { recursive: true });
-          await writeFile(temporary, data);
-          await rename(temporary, path);
-        } catch (error) {
-          console.error("Card image cache write failed:", error);
-          await unlink(temporary).catch(() => {});
-        }
+      const temporary = join(cacheDirectory, `${id}-${variant}.${randomUUID()}.tmp`);
+      try {
+        await mkdir(cacheDirectory, { recursive: true });
+        await writeFile(temporary, data);
+        await rename(temporary, path);
+      } catch (error) {
+        console.error("Card image cache write failed:", error);
+        await unlink(temporary).catch(() => {});
       }
     } catch (error) {
       if (!data) {
-        await updateImageRecord(cid, variant, { status: error instanceof CardImageError && error.kind === "invalid" ? "INVALID" : "MISSING" });
         throw error;
       }
       cacheHit = true;
@@ -298,11 +264,5 @@ async function loadCardImage(id: string, cid: number, variant: CardVariant): Pro
   }
 
   const checksum = createHash("sha256").update(data).digest("hex");
-  await updateImageRecord(cid, variant, {
-    status: "READY",
-    width: inspected.width,
-    height: inspected.height,
-    checksum,
-  });
   return { data, ...inspected, checksum, cacheHit, warnings: inspected.warnings };
 }

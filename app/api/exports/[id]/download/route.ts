@@ -1,10 +1,12 @@
 import { getExportJob, readExportFile } from "@/lib/export-store";
+import { CLOUD_FEATURES_ENABLED, cloudPausedResponse } from "@/lib/cloud-features";
 import { PROJECT_COOKIE, getProjectByToken } from "@/lib/print-project";
 import { NextRequest } from "next/server";
 
 export const runtime = "nodejs";
 
 export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {
+  if (!CLOUD_FEATURES_ENABLED) return cloudPausedResponse();
   const { id } = await context.params;
   const project = await getProjectByToken(request.cookies.get(PROJECT_COOKIE)?.value);
   if (!project) return Response.json({ error: "项目令牌无效或已过期。" }, { status: 401 });

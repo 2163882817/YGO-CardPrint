@@ -1,11 +1,10 @@
 import { buildExportDocument } from "@/lib/export-docx";
 import { CardImageError } from "@/lib/card-image-service";
 import { parsePrintItems } from "@/lib/print-items";
-import { PROJECT_COOKIE, getProjectByToken } from "@/lib/print-project";
 import { NextRequest } from "next/server";
 
 const MAX_ITEMS = 120;
-// Form encoding expands non-ASCII card names; keep the direct fallback usable for the full 120-card limit.
+// Accept both JSON and native form downloads, including non-ASCII card names.
 const MAX_BODY_LENGTH = 256 * 1024;
 const DOWNLOAD_COOKIE = "ygo_export_download";
 const REQUEST_ID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
@@ -57,14 +56,6 @@ export async function POST(request: NextRequest) {
   if (!items || items.length > MAX_ITEMS) return errorResponse("请提供 1～120 张有效的打印清单。", 400, "INVALID_ITEMS", requestId);
 
   try {
-    const project = await getProjectByToken(request.cookies.get(PROJECT_COOKIE)?.value);
-    if (!project) return errorResponse("打印项目已失效，请刷新页面后重试。", 401, "PROJECT_EXPIRED", requestId);
-    const saved = project.items.sort((a, b) => a.position - b.position);
-    if (saved.length !== items.length || saved.some((item, index) =>
-      item.cardCid !== items[index].card.cid || item.card.password !== items[index].card.id ||
-      item.variant !== items[index].variant || item.quantity !== items[index].quantity)) {
-      return errorResponse("云端清单尚未同步，请稍后重试。", 409, "PROJECT_CONFLICT", requestId);
-    }
     const { file, fileName, warnings } = await buildExportDocument(items);
     let offset = 0;
     const stream = new ReadableStream<Uint8Array>({

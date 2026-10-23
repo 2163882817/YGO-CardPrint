@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { CLOUD_FEATURES_ENABLED, cloudPausedResponse } from "@/lib/cloud-features";
 
 import { parsePrintItems } from "@/lib/print-items";
 import { cleanupExpiredDataBestEffort } from "@/lib/cleanup";
@@ -23,6 +24,7 @@ async function readBody(request: Request): Promise<unknown> {
 }
 
 export async function GET(request: NextRequest) {
+  if (!CLOUD_FEATURES_ENABLED) return cloudPausedResponse();
   try {
     const token = request.cookies.get(PROJECT_COOKIE)?.value;
     const project = await getProjectByToken(token);
@@ -37,6 +39,7 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  if (!CLOUD_FEATURES_ENABLED) return cloudPausedResponse();
   let body: unknown;
   try {
     body = await readBody(request);
@@ -61,6 +64,7 @@ export async function POST(request: NextRequest) {
 }
 
 export async function PUT(request: NextRequest) {
+  if (!CLOUD_FEATURES_ENABLED) return cloudPausedResponse();
   let body: unknown;
   try {
     body = await readBody(request);

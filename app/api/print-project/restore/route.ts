@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { CLOUD_FEATURES_ENABLED, cloudPausedResponse } from "@/lib/cloud-features";
 
 import {
   PROJECT_COOKIE,
@@ -11,6 +12,7 @@ import {
 export const runtime = "nodejs";
 
 export async function POST(request: NextRequest) {
+  if (!CLOUD_FEATURES_ENABLED) return cloudPausedResponse();
   let token: unknown;
   try {
     if (Number(request.headers.get("content-length")) > 256) throw new Error("body too large");

@@ -1,4 +1,5 @@
-import { generateExportDocument } from "@/lib/export-docx";
+import { generateExportDocument } from "@/lib/export-job";
+import { CLOUD_FEATURES_ENABLED, cloudPausedResponse } from "@/lib/cloud-features";
 import { assertExportStorageConfigured, isBlobStoreSuspended, isSuspendedBlobStore, SUSPENDED_BLOB_ERROR } from "@/lib/blob-storage";
 import { cleanupExpiredDataBestEffort } from "@/lib/cleanup";
 import { createExportJob, publicExportJob } from "@/lib/export-store";
@@ -13,6 +14,7 @@ export const runtime = "nodejs";
 export const maxDuration = 300;
 
 export async function POST(request: NextRequest) {
+  if (!CLOUD_FEATURES_ENABLED) return cloudPausedResponse();
   let body: unknown;
   try {
     if (Number(request.headers.get("content-length")) > MAX_BODY_LENGTH) {

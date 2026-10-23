@@ -19,8 +19,6 @@ import sharp from "sharp";
 
 import type { CardVariant, PrintItem } from "@/lib/cards";
 import { validateAndCacheCardImage } from "@/lib/card-image-service";
-import { isSuspendedBlobStore, SUSPENDED_BLOB_ERROR } from "@/lib/blob-storage";
-import { completeExportJob, updateExportJob } from "@/lib/export-store";
 
 const CARD_WIDTH_MM = 59;
 const CARD_HEIGHT_MM = 86;
@@ -165,16 +163,4 @@ export async function buildExportDocument(items: PrintItem[]) {
     const file = await Packer.toBuffer(document);
     const fileName = "ygo-cardprint-" + new Date().toISOString().slice(0, 10) + ".docx";
     return { file, fileName, warnings: [...warnings] };
-}
-
-export async function generateExportDocument(jobId: string, items: PrintItem[]) {
-  try {
-    await updateExportJob(jobId, { status: "processing" });
-    const { file, fileName, warnings } = await buildExportDocument(items);
-    await completeExportJob(jobId, file, fileName, warnings);
-  } catch (error) {
-    const message = isSuspendedBlobStore(error) ? SUSPENDED_BLOB_ERROR :
-      error instanceof Error ? error.message : "生成 Word 文件失败";
-    await updateExportJob(jobId, { status: "failed", error: message }).catch(console.error);
-  }
 }
