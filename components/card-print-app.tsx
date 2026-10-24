@@ -4,7 +4,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   AlertCircle, ArrowDown, ArrowRight, ArrowUp, ArrowUpRight, Check, ChevronLeft, ChevronRight,
-  FileDown, Layers3, LoaderCircle, Minus, Plus, RefreshCw, Search, Trash2, X,
+  FileDown, Layers3, LoaderCircle, Minus, Plus, RefreshCw, Search, Store, Trash2, X,
 } from "lucide-react";
 import {
   CARD_VARIANTS, cardImagePreview, itemKey,
@@ -306,6 +306,17 @@ export default function CardPrintApp() {
             <a href="#search">查找卡片</a><a href="#how-it-works">使用说明</a>
           </nav>
           <div className="header-actions">
+            <a
+              className="creator-link shop-link"
+              href="https://wzyp.cn/shop/duoladuola"
+              target="_blank"
+              rel="noopener noreferrer"
+              aria-label="我的AI小店（新标签页）"
+            >
+              <Store className="creator-link__tv" size={24} strokeWidth={2} aria-hidden="true" />
+              <span>我的AI小店</span>
+              <ArrowUpRight className="creator-link__arrow" size={15} aria-hidden="true" />
+            </a>
             <a
               className="creator-link"
               href="https://space.bilibili.com/277807657?spm_id_from=333.1007.0.0"

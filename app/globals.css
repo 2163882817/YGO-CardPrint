@@ -40,6 +40,8 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
 .creator-link:hover { background: var(--sage); border-color: #5e8b72; }
 .creator-link__tv { width: 24px; height: 24px; flex: none; }
 .creator-link__arrow { flex: none; }
+.shop-link { background: #e0edc9; border-color: #83a36d; }
+.shop-link:hover { background: var(--accent); border-color: #5e8b72; }
 .header-tray { display: flex; align-items: center; gap: 11px; background: var(--ink); color: #fff; border-radius: 7px; padding: 12px 13px 12px 18px; font-weight: 700; font-size: 12px; white-space: nowrap; transition: background .2s; }
 .header-tray:hover { background: #276652; }
 .header-tray span { display: inline-flex; justify-content: center; align-items: center; width: 22px; height: 22px; border-radius: 4px; background: rgba(255,255,255,.15); }
@@ -171,6 +173,9 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
   .hero__illustration { transform: scale(.9); transform-origin: center; }
   .result-card__add { padding: 10px; }
 }
+@media (max-width: 1000px) {
+  .desktop-nav { display: none; }
+}
 @media (max-width: 850px) {
   .desktop-nav { display: none; }
   .workspace { grid-template-columns: minmax(0, 1fr); gap: 48px; }
@@ -199,6 +204,16 @@ button:focus-visible, a:focus-visible, input:focus-visible { outline: 3px solid 
   .mobile-tray-bar { position: fixed; z-index: 20; left: 12px; right: 12px; bottom: 10px; min-height: 52px; padding: 0 16px; display: flex; align-items: center; justify-content: space-between; gap: 14px; border-radius: 7px; background: #24513e; color: white; font-size: 12px; font-weight: 720; }.mobile-tray-bar > span { display: flex; align-items: center; gap: 8px; white-space: nowrap; }.mobile-tray-bar b { font-size: 11px; background: rgba(255,255,255,.17); border-radius: 3px; padding: 3px 6px; }.mobile-tray-bar > span:last-child { font-size: 11px; color: #c8e0c3; }
   .site-footer { padding-bottom: 53px; }
   .dialog-backdrop { padding: 0; align-items: end; }.card-dialog { grid-template-columns: 1fr; max-height: min(94dvh, 900px); border-radius: 14px 14px 0 0; }.dialog-preview { display: none; }.dialog-content { padding: 31px 21px 24px; }.dialog-content h2 { font-size: 22px; }.dialog-rule { margin: 18px 0; }.variant-grid { gap: 8px; }.variant-option { min-height: 82px; gap: 7px; padding: 6px; }.variant-option > .card-artwork { width: 40px; height: 59px; }.variant-option__check { right: 4px; top: 4px; width: 15px; height: 15px; }.dialog-bottom { padding-top: 17px; }.toast { bottom: 74px; font-size: 11px; }
+}
+/* Keep both external links readable instead of squeezing four controls into one row. */
+@media (max-width: 760px) {
+  .site-header { height: auto; }
+  .site-header__inner { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 12px; padding-top: 10px; padding-bottom: 10px; }
+  .site-header .brand { grid-column: 1; grid-row: 1; }
+  .header-actions { display: contents; }
+  .header-tray { grid-column: 2; grid-row: 1; justify-self: end; min-height: 44px; }
+  .creator-link { grid-column: 2; grid-row: 2; min-height: 44px; }
+  .shop-link { grid-column: 1; }
 }
 @media (max-width: 360px) {
   .hero h1 { font-size: 38px; }.brand small { display: none; }.result-card__meta { letter-spacing: 0; }.variant-option__copy strong { font-size: 10px; }.variant-option__copy small { font-size: 8px; }
